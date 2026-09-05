@@ -100,26 +100,37 @@ export class FootprintAggregator {
 
   /**
    * Build renderable footprint matrix.
-   * @returns {{
-   *   intervalSec: number,
-   *   columns: Array<{
-   *     t: number,
-   *     totalBuy: number,
-   *     totalSell: number,
-   *     delta: number,
-   *     poc: number|null,
-   *     cells: Record<number, object>
-   *   }>,
-   *   prices: number[],
-   *   maxVol: number,
-   *   lastPrice: number|null
-   * }}
+   * @param {number} now
+   * @param {{
+   *   bookBids?: Array<{price:number, quantity:number}>,
+   *   bookAsks?: Array<{price:number, quantity:number}>,
+   *   bidLevels?: number,
+   *   askLevels?: number,
+   * }} [book]
    */
-  snapshot(now = Date.now() / 1000) {
+  snapshot(now = Date.now() / 1000, book = {}) {
     this._prune(now);
     const bucketStarts = [...this.columns.keys()].sort((a, b) => a - b);
     const priceSet = new Set();
     let maxVol = 0;
+
+    /** @type {Record<number, {side:string, quantity:number}>} */
+    const resting = {};
+    const bidLevels = book.bidLevels ?? 30;
+    const askLevels = book.askLevels ?? 30;
+
+    const asks = (book.bookAsks || []).slice(0, askLevels);
+    const bids = (book.bookBids || []).slice(0, bidLevels);
+    for (const lvl of asks) {
+      const pk = this._priceKey(lvl.price);
+      priceSet.add(pk);
+      resting[pk] = { side: "ask", quantity: lvl.quantity };
+    }
+    for (const lvl of bids) {
+      const pk = this._priceKey(lvl.price);
+      priceSet.add(pk);
+      resting[pk] = { side: "bid", quantity: lvl.quantity };
+    }
 
     const columns = bucketStarts.map((t) => {
       const map = this.columns.get(t);
@@ -166,14 +177,17 @@ export class FootprintAggregator {
       };
     });
 
-    // Keep nearest 60 levels to last price
+    // Prefer full ask+bid ladder around mid; keep traded prices that fall inside range
     let prices = [...priceSet].sort((a, b) => b - a);
-    if (prices.length > 60) {
-      const anchor = this.lastPrice ?? prices[Math.floor(prices.length / 2)];
+    const maxRows = bidLevels + askLevels + 10;
+    if (prices.length > maxRows) {
+      const anchor =
+        this.lastPrice ??
+        (asks[0] && bids[0] ? (asks[0].price + bids[0].price) / 2 : prices[Math.floor(prices.length / 2)]);
       prices = prices
         .map((p) => ({ p, d: Math.abs(p - anchor) }))
         .sort((a, b) => a.d - b.d)
-        .slice(0, 60)
+        .slice(0, maxRows)
         .map((x) => x.p)
         .sort((a, b) => b - a);
     }
@@ -182,7 +196,9 @@ export class FootprintAggregator {
       intervalSec: this.intervalSec,
       columns,
       prices,
+      resting,
       maxVol: maxVol || 1,
+      maxResting: Math.max(1, ...Object.values(resting).map((r) => r.quantity)),
       lastPrice: this.lastPrice,
     };
   }

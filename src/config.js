@@ -4,6 +4,10 @@ export const CONFIG = {
   windows: [1, 5, 15, 60, 300],
   bookDepthLimit: 1000,
   nearBookLevels: 20,
+  footprintBidLevels: 30,
+  footprintAskLevels: 30,
+  footprintDepthLimit: 100, // REST ladder for deeper footprint rows
+  footprintDepthRefreshMs: 2000,
   wallPercentile: 95,
   wallMultiplier: 3.0,
   bookMode: "partial20", // partial20 (reliable) | full (REST+diff when ID spaces match)

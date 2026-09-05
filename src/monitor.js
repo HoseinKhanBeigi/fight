@@ -36,6 +36,9 @@ export class OrderFlowMonitor {
       error: null,
     };
     this._backfillGen = 0;
+    /** Deeper REST ladder for footprint rows (beyond live depth20). */
+    this.depthLadder = { bids: [], asks: [], ts: 0 };
+    this._depthLadderTimer = null;
 
     this.feed = new BinanceFuturesFeed({
       symbol: this.config.symbol,
@@ -59,13 +62,59 @@ export class OrderFlowMonitor {
 
   async start() {
     await this.feed.start();
-    // Live stream first; backfill historical aggTrades in parallel
     void this.backfillHistory();
+    this._startDepthLadder();
   }
 
   stop() {
     this._backfillGen += 1;
+    if (this._depthLadderTimer) {
+      clearInterval(this._depthLadderTimer);
+      this._depthLadderTimer = null;
+    }
     this.feed.stop();
+  }
+
+  _startDepthLadder() {
+    if (this._depthLadderTimer) clearInterval(this._depthLadderTimer);
+    const ms = this.config.footprintDepthRefreshMs ?? 2000;
+    void this.refreshDepthLadder();
+    this._depthLadderTimer = setInterval(() => {
+      void this.refreshDepthLadder();
+    }, ms);
+  }
+
+  async refreshDepthLadder() {
+    try {
+      const limit = this.config.footprintDepthLimit ?? 100;
+      const url = `${this.config.restBase}/fapi/v1/depth?symbol=${this.config.symbol.toUpperCase()}&limit=${limit}`;
+      const res = await fetch(url);
+      if (!res.ok) return;
+      const j = await res.json();
+      this.depthLadder = {
+        bids: (j.bids || []).map(([p, q]) => ({
+          price: Number(p),
+          quantity: Number(q),
+        })),
+        asks: (j.asks || []).map(([p, q]) => ({
+          price: Number(p),
+          quantity: Number(q),
+        })),
+        ts: Date.now(),
+      };
+      // Infer tick / price precision from ladder when possible
+      if (this.depthLadder.asks.length >= 2) {
+        const d = Math.abs(this.depthLadder.asks[1].price - this.depthLadder.asks[0].price);
+        if (d > 0 && d < 1) {
+          const decimals = Math.min(6, Math.max(0, -Math.floor(Math.log10(d))));
+          this.footprint.pricePrecision = decimals;
+        } else if (d >= 1) {
+          this.footprint.pricePrecision = 1;
+        }
+      }
+    } catch {
+      /* ignore transient REST errors */
+    }
   }
 
   /**
@@ -351,7 +400,24 @@ export class OrderFlowMonitor {
         currentSize: e.currentSize,
         matchedTradeVolume: e.matchedTradeVolume,
       })),
-      footprint: this.footprint.snapshot(now),
+      footprint: this.footprint.snapshot(now, {
+        bookBids:
+          this.depthLadder.bids.length > 0
+            ? this.depthLadder.bids
+            : this.book.nearLevelsList("bid", this.config.footprintBidLevels ?? 30).map((l) => ({
+                price: l.price,
+                quantity: l.quantity,
+              })),
+        bookAsks:
+          this.depthLadder.asks.length > 0
+            ? this.depthLadder.asks
+            : this.book.nearLevelsList("ask", this.config.footprintAskLevels ?? 30).map((l) => ({
+                price: l.price,
+                quantity: l.quantity,
+              })),
+        bidLevels: this.config.footprintBidLevels ?? 30,
+        askLevels: this.config.footprintAskLevels ?? 30,
+      }),
       history: { ...this.history },
       note: "Cancellation volumes are ESTIMATES (book Δ − matched trades). Historical footprint uses Binance aggTrades REST; cancels/refills are live-only.",
     };

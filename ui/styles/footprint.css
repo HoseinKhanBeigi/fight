@@ -323,7 +323,7 @@ select {
 
 .fp-grid {
   display: grid;
-  grid-template-columns: 72px;
+  grid-template-columns: 118px;
   grid-auto-flow: column;
   grid-auto-columns: minmax(88px, 1fr);
   width: max-content;
@@ -373,6 +373,50 @@ select {
   text-align: right;
   font-size: 11px;
   color: var(--text-1);
+  overflow: hidden;
+}
+
+.fp-price .rest-bar {
+  position: absolute;
+  inset: 1px 0;
+  opacity: 0.2;
+  pointer-events: none;
+}
+.fp-price .rest-bar.ask {
+  background: linear-gradient(270deg, var(--sell), transparent);
+  right: 0;
+  left: auto;
+}
+.fp-price .rest-bar.bid {
+  background: linear-gradient(90deg, var(--buy), transparent);
+  left: 0;
+  right: auto;
+}
+
+.fp-price .rest-main {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  justify-content: space-between;
+  gap: 6px;
+  align-items: baseline;
+}
+
+.fp-price .rest-px {
+  font-variant-numeric: tabular-nums;
+}
+.fp-price .rest-sz {
+  font-size: 9px;
+  color: var(--text-3);
+  font-variant-numeric: tabular-nums;
+}
+.fp-price.ask .rest-sz {
+  color: var(--sell);
+  opacity: 0.85;
+}
+.fp-price.bid .rest-sz {
+  color: var(--buy);
+  opacity: 0.85;
 }
 
 .fp-price.bid {

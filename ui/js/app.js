@@ -264,19 +264,42 @@ function renderChart(s) {
   const cols = fp.columns;
   const last = fp.lastPrice ?? s.price;
   const maxVol = fp.maxVol || 1;
+  const maxRest = fp.maxResting || 1;
+  const resting = fp.resting || {};
   const bestBid = s.bestBid;
   const bestAsk = s.bestAsk;
 
   const rowCount = 1 + prices.length + 1;
   let html = `<div class="fp-grid" style="grid-template-rows: repeat(${rowCount}, auto)">`;
 
-  html += `<div class="fp-corner">Price \\ Time</div>`;
+  html += `<div class="fp-corner">Price / Book</div>`;
   for (const p of prices) {
+    const rest = resting[p] || resting[String(p)];
+    // try fuzzy key match for float keys
+    let r = rest;
+    if (!r) {
+      for (const [k, v] of Object.entries(resting)) {
+        if (Math.abs(Number(k) - p) < 1e-8) {
+          r = v;
+          break;
+        }
+      }
+    }
     let cls = "fp-price";
     if (last != null && Math.abs(p - last) < 1e-9) cls += " last";
-    else if (bestAsk != null && p >= bestAsk) cls += " ask";
-    else if (bestBid != null && p <= bestBid) cls += " bid";
-    html += `<div class="${cls}">${fmtPx(p)}</div>`;
+    else if (r?.side === "ask" || (bestAsk != null && p >= bestAsk)) cls += " ask";
+    else if (r?.side === "bid" || (bestBid != null && p <= bestBid)) cls += " bid";
+
+    const qty = r?.quantity || 0;
+    const barW = qty > 0 ? Math.min(100, (qty / maxRest) * 100) : 0;
+    const sideTag = r?.side === "ask" ? "A" : r?.side === "bid" ? "B" : "";
+    html += `<div class="${cls}" title="Resting ${r?.side || "—"} ${fmt(qty)} (${fmtUsd(notional(qty, p))})">
+      <div class="rest-bar ${r?.side || ""}" style="width:${barW}%"></div>
+      <div class="rest-main">
+        <span class="rest-px">${fmtPx(p)}</span>
+        <span class="rest-sz">${sideTag ? `${sideTag} ${fmtUsd(notional(qty, p))}` : ""}</span>
+      </div>
+    </div>`;
   }
   html += `<div class="fp-corner">Δ</div>`;
 
