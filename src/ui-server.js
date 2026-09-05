@@ -15,7 +15,7 @@ import { CONFIG } from "./config.js";
 import { OrderFlowMonitor } from "./monitor.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const UI_ROOT = path.join(__dirname, "..", "ui");
+const UI_ROOT = path.resolve(path.join(__dirname, "..", "ui"));
 
 const args = process.argv.slice(2).filter((a) => a !== "--mock");
 const portArg = args.find((a) => a.startsWith("--port="));
@@ -35,35 +35,62 @@ const MIME = {
   ".js": "text/javascript; charset=utf-8",
   ".svg": "image/svg+xml",
   ".json": "application/json",
+  ".ico": "image/x-icon",
+  ".map": "application/json",
 };
 
 function sendFile(res, filePath) {
   fs.readFile(filePath, (err, buf) => {
     if (err) {
-      res.writeHead(404, { "Content-Type": "text/plain" });
+      console.error("Static 404:", filePath, err.code);
+      res.writeHead(404, { "Content-Type": "text/plain; charset=utf-8" });
       res.end("Not found");
       return;
     }
     const ext = path.extname(filePath);
     res.writeHead(200, {
       "Content-Type": MIME[ext] || "application/octet-stream",
-      "Cache-Control": ext === ".html" || ext === ".js" || ext === ".css" ? "no-store" : "public",
+      "Cache-Control":
+        ext === ".html" || ext === ".js" || ext === ".css" ? "no-store" : "public",
     });
     res.end(buf);
   });
 }
 
-const server = http.createServer((req, res) => {
-  const url = new URL(req.url || "/", `http://${req.headers.host}`);
-  let pathname = decodeURIComponent(url.pathname);
-  if (pathname === "/") pathname = "/index.html";
-  const filePath = path.normalize(path.join(UI_ROOT, pathname));
-  if (!filePath.startsWith(UI_ROOT)) {
-    res.writeHead(403);
-    res.end("Forbidden");
-    return;
+function resolveUiPath(pathname) {
+  let rel = decodeURIComponent(pathname || "/");
+  if (rel === "/" || rel === "") rel = "index.html";
+  // Never pass an absolute segment into path.join
+  rel = rel.replace(/^\/+/, "");
+  const filePath = path.resolve(UI_ROOT, rel);
+  const rootWithSep = UI_ROOT.endsWith(path.sep) ? UI_ROOT : UI_ROOT + path.sep;
+  if (filePath !== UI_ROOT && !filePath.startsWith(rootWithSep)) {
+    return null;
   }
-  sendFile(res, filePath);
+  return filePath;
+}
+
+const server = http.createServer((req, res) => {
+  try {
+    const url = new URL(req.url || "/", `http://${req.headers.host || "localhost"}`);
+    // Ignore websocket upgrade here; ws library handles /ws
+    if (url.pathname === "/ws") {
+      res.writeHead(400, { "Content-Type": "text/plain" });
+      res.end("WebSocket endpoint");
+      return;
+    }
+    const filePath = resolveUiPath(url.pathname);
+    if (!filePath) {
+      res.writeHead(403, { "Content-Type": "text/plain" });
+      res.end("Forbidden");
+      return;
+    }
+    sendFile(res, filePath);
+  } catch (err) {
+    console.error("HTTP handler error:", err);
+    res.writeHead(500, { "Content-Type": "text/plain" });
+    res.end("Server error");
+  }
 });
 
 const wss = new WebSocketServer({ server, path: "/ws" });
@@ -225,9 +252,13 @@ wss.on("connection", (ws) => {
   });
 });
 
-server.listen(port, async () => {
+server.listen(port, "0.0.0.0", async () => {
+  console.log(`UI folder      →  ${UI_ROOT}`);
   console.log(`Order-flow UI  →  http://localhost:${port}`);
   console.log(`Live symbol    →  ${symbol.toUpperCase()} (real Binance Futures data)`);
+  if (!fs.existsSync(path.join(UI_ROOT, "index.html"))) {
+    console.error("ERROR: ui/index.html missing at", path.join(UI_ROOT, "index.html"));
+  }
   await startMonitor(symbol);
   startBroadcast();
 });

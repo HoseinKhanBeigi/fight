@@ -22,6 +22,7 @@ const ui = {
   stickRight: true,
   headerReady: false,
   switching: false,
+  showDetails: false,
 };
 
 function $(id) {
@@ -250,12 +251,21 @@ function renderHeader(s) {
   }
 }
 
+function resolveResting(resting, p) {
+  if (resting[p]) return resting[p];
+  if (resting[String(p)]) return resting[String(p)];
+  for (const [k, v] of Object.entries(resting)) {
+    if (Math.abs(Number(k) - p) < 1e-8) return v;
+  }
+  return null;
+}
+
 function renderChart(s) {
   const fp = s.footprint;
   const el = $("chart");
   if (!fp || !fp.columns?.length || !fp.prices?.length) {
     el.innerHTML = `<div class="empty-msg">${
-      ui.switching ? `Switching to ${ui.symbol}…` : "Building footprint from live trades…"
+      ui.switching ? `Switching to ${ui.symbol}…` : "Waiting for trades to build the chart…"
     }</div>`;
     return;
   }
@@ -269,22 +279,13 @@ function renderChart(s) {
   const bestBid = s.bestBid;
   const bestAsk = s.bestAsk;
 
+  // Header row needs 2 lines for Buyers/Sellers labels clarity in corner
   const rowCount = 1 + prices.length + 1;
-  let html = `<div class="fp-grid" style="grid-template-rows: repeat(${rowCount}, auto)">`;
+  let html = `<div class="fp-grid simple" style="grid-template-rows: repeat(${rowCount}, auto)">`;
 
-  html += `<div class="fp-corner">Price / Book</div>`;
+  html += `<div class="fp-corner">Price<br/><span class="sub">book waiting</span></div>`;
   for (const p of prices) {
-    const rest = resting[p] || resting[String(p)];
-    // try fuzzy key match for float keys
-    let r = rest;
-    if (!r) {
-      for (const [k, v] of Object.entries(resting)) {
-        if (Math.abs(Number(k) - p) < 1e-8) {
-          r = v;
-          break;
-        }
-      }
-    }
+    const r = resolveResting(resting, p);
     let cls = "fp-price";
     if (last != null && Math.abs(p - last) < 1e-9) cls += " last";
     else if (r?.side === "ask" || (bestAsk != null && p >= bestAsk)) cls += " ask";
@@ -292,82 +293,88 @@ function renderChart(s) {
 
     const qty = r?.quantity || 0;
     const barW = qty > 0 ? Math.min(100, (qty / maxRest) * 100) : 0;
-    const sideTag = r?.side === "ask" ? "A" : r?.side === "bid" ? "B" : "";
-    html += `<div class="${cls}" title="Resting ${r?.side || "—"} ${fmt(qty)} (${fmtUsd(notional(qty, p))})">
+    const sideLabel = r?.side === "ask" ? "ASK" : r?.side === "bid" ? "BID" : "";
+    html += `<div class="${cls}" title="${sideLabel || "No resting size"} ${fmtUsd(notional(qty, p))}">
       <div class="rest-bar ${r?.side || ""}" style="width:${barW}%"></div>
       <div class="rest-main">
         <span class="rest-px">${fmtPx(p)}</span>
-        <span class="rest-sz">${sideTag ? `${sideTag} ${fmtUsd(notional(qty, p))}` : ""}</span>
+        <span class="rest-sz">${sideLabel ? `${sideLabel} ${fmtUsd(notional(qty, p))}` : ""}</span>
       </div>
     </div>`;
   }
-  html += `<div class="fp-corner">Δ</div>`;
+  html += `<div class="fp-corner">Who won<br/><span class="sub">this column</span></div>`;
 
   for (const col of cols) {
     html += `<div class="fp-time">${clock(col.t)}</div>`;
     for (const p of prices) {
       const cell = col.cells[p];
-      if (
-        !cell ||
-        (cell.buy < 1e-10 &&
-          cell.sell < 1e-10 &&
-          !cell.cancelAsk &&
-          !cell.cancelBid &&
-          !cell.refillAsk &&
-          !cell.refillBid)
-      ) {
+      const hasTrade = cell && (cell.buy > 1e-10 || cell.sell > 1e-10);
+      const hasDetail =
+        cell &&
+        (cell.cancelAsk > 1e-10 ||
+          cell.cancelBid > 1e-10 ||
+          cell.refillAsk > 1e-10 ||
+          cell.refillBid > 1e-10);
+
+      if (!hasTrade && !(ui.showDetails && hasDetail)) {
         html += `<div class="fp-cell empty"></div>`;
         continue;
       }
-      const total = cell.buy + cell.sell;
-      const heat = Math.min(1, total / maxVol);
-      const imb = cell.imbalance || 0;
-      let cls = "fp-cell";
-      if (col.poc != null && Math.abs(col.poc - p) < 1e-9) cls += " poc";
-      if (imb >= 0.6) cls += " imb-buy";
-      else if (imb <= -0.6) cls += " imb-sell";
 
-      const marks = [];
-      if (cell.cancelBid > 1e-8)
-        marks.push(
-          `<span class="c" title="Bid cancelled (passive buyers pulled)">Cb ${cellUsdText(cell.cancelBid, p) || cellVolText(cell.cancelBid)}</span>`
-        );
-      if (cell.cancelAsk > 1e-8)
-        marks.push(
-          `<span class="c" title="Ask cancelled (passive sellers pulled)">Ca ${cellUsdText(cell.cancelAsk, p) || cellVolText(cell.cancelAsk)}</span>`
-        );
-      if (cell.refillBid > 1e-8)
-        marks.push(
-          `<span class="r" title="Bid refilled (passive buyers replaced size)">Rb ${cellUsdText(cell.refillBid, p) || cellVolText(cell.refillBid)}</span>`
-        );
-      if (cell.refillAsk > 1e-8)
-        marks.push(
-          `<span class="r" title="Ask refilled (passive sellers replaced size)">Ra ${cellUsdText(cell.refillAsk, p) || cellVolText(cell.refillAsk)}</span>`
-        );
+      const buy = cell?.buy || 0;
+      const sell = cell?.sell || 0;
+      const total = buy + sell;
+      const heat = total > 0 ? Math.min(1, total / maxVol) : 0;
+      let cls = "fp-cell simple-cell";
+      if (col.poc != null && Math.abs(col.poc - p) < 1e-9) cls += " poc";
+
+      const buyWins = buy > sell * 1.15;
+      const sellWins = sell > buy * 1.15;
+      if (buyWins) cls += " imb-buy";
+      else if (sellWins) cls += " imb-sell";
 
       const buyHeat =
-        cell.buy >= cell.sell
-          ? `rgba(61,154,106,${0.08 + heat * 0.35})`
-          : `rgba(196,92,92,${0.08 + heat * 0.35})`;
+        buy >= sell
+          ? `rgba(61,154,106,${0.1 + heat * 0.32})`
+          : `rgba(196,92,92,${0.1 + heat * 0.32})`;
 
-      const sellTxt = cellUsdText(cell.sell, p) || cellVolText(cell.sell);
-      const buyTxt = cellUsdText(cell.buy, p) || cellVolText(cell.buy);
+      const sellTxt = cellUsdText(sell, p) || "—";
+      const buyTxt = cellUsdText(buy, p) || "—";
+      const winner =
+        buyWins ? "BUYERS" : sellWins ? "SELLERS" : total > 0 ? "EVEN" : "";
 
-      html += `<div class="${cls}" title="SELL(hits bid) ${fmtUsd(notional(cell.sell, p))} × BUY(hits ask) ${fmtUsd(notional(cell.buy, p))}
-Cb=${fmtUsd(notional(cell.cancelBid, p))} Ca=${fmtUsd(notional(cell.cancelAsk, p))}
-Rb=${fmtUsd(notional(cell.refillBid, p))} Ra=${fmtUsd(notional(cell.refillAsk, p))}">
+      let details = "";
+      if (ui.showDetails && hasDetail) {
+        const bits = [];
+        if (cell.cancelBid > 1e-8)
+          bits.push(`<span class="c">bid pulled ${fmtUsd(notional(cell.cancelBid, p))}</span>`);
+        if (cell.cancelAsk > 1e-8)
+          bits.push(`<span class="c">ask pulled ${fmtUsd(notional(cell.cancelAsk, p))}</span>`);
+        if (cell.refillBid > 1e-8)
+          bits.push(`<span class="r">bid back ${fmtUsd(notional(cell.refillBid, p))}</span>`);
+        if (cell.refillAsk > 1e-8)
+          bits.push(`<span class="r">ask back ${fmtUsd(notional(cell.refillAsk, p))}</span>`);
+        details = `<div class="marks">${bits.join(" · ")}</div>`;
+      }
+
+      html += `<div class="${cls}" title="At ${fmtPx(p)}: sellers hit bid ${fmtUsd(notional(sell, p))}, buyers hit ask ${fmtUsd(notional(buy, p))}">
         <div class="heat" style="background:${buyHeat};opacity:1"></div>
-        <div class="pair">
-          <span class="sell">${sellTxt}</span>
-          <span class="x">×</span>
-          <span class="buy">${buyTxt}</span>
+        <div class="stack">
+          <div class="stack-row sell"><span class="lab">Sellers</span><span class="val">${sellTxt}</span></div>
+          <div class="stack-row buy"><span class="lab">Buyers</span><span class="val">${buyTxt}</span></div>
         </div>
-        ${marks.length ? `<div class="marks">${marks.join("")}</div>` : ""}
+        ${winner ? `<div class="winner ${buyWins ? "buy" : sellWins ? "sell" : ""}">${winner}</div>` : ""}
+        ${details}
       </div>`;
     }
-    const dCls = col.delta >= 0 ? "pos" : "neg";
     const midPx = col.poc ?? last ?? s.price;
-    html += `<div class="fp-delta ${dCls}">${col.delta >= 0 ? "+" : ""}${fmtUsd(notional(col.delta, midPx))}</div>`;
+    const dNotional = notional(col.delta, midPx);
+    const dCls = col.delta >= 0 ? "pos" : "neg";
+    const dLabel =
+      col.delta > 0 ? "Buyers +" : col.delta < 0 ? "Sellers +" : "Even";
+    html += `<div class="fp-delta ${dCls}" title="Buy volume − sell volume in this time column">
+      ${dLabel}<br/>${fmtUsd(Math.abs(dNotional))}
+    </div>`;
   }
 
   html += `</div>`;
@@ -495,25 +502,18 @@ function renderFooter(s) {
   const h = s.history || {};
   let histLine = "";
   if (h.status === "loading") {
-    histLine = `Loading history… ${(h.loaded || 0).toLocaleString()} trades (~${Math.round((h.lookbackSec || 0) / 60)}m lookback).`;
+    histLine = `Loading past trades… ${(h.loaded || 0).toLocaleString()}`;
   } else if (h.status === "done") {
-    histLine = `History: ${(h.loaded || 0).toLocaleString()} past trades loaded (~${Math.round((h.lookbackSec || 0) / 60)}m). Cancels/refills start from live book only.`;
+    histLine = `Loaded ${(h.loaded || 0).toLocaleString()} past trades (~${Math.round((h.lookbackSec || 0) / 60)}m).`;
   } else if (h.status === "error") {
     histLine = `History error: ${h.error || "unknown"}`;
-  } else {
-    histLine = "History: waiting…";
   }
 
   $("footer").innerHTML = `
     <div class="note" style="grid-column:1/-1">
-      <b style="color:var(--text-1)">USD:</b>
-      notional = size × price (USDT).
-      Fight panel uses the selected timeframe (incl. <b>5m</b>).
-      Footprint cells show $.
-      <span style="color:var(--cancel)">C</span>/<span style="color:var(--refill)">R</span> = estimated cancel/refill (live only).
-      <br/>
-      <b style="color:var(--text-1)">History:</b> ${histLine}
-      ${s.note || ""}
+      All $ amounts are USDT (size × price).
+      ${histLine}
+      Cancel/refill stay hidden unless you enable “Show cancel / refill details”.
     </div>
   `;
 }
@@ -578,7 +578,16 @@ $("chart")?.addEventListener("scroll", () => {
   ui.stickRight = el.scrollWidth - el.clientWidth - el.scrollLeft < 40;
 });
 
-/* Harden server-side switch: also improve ui-server below via separate edit */
 ensureHeader();
 renderHeader({ symbol: ui.symbol, connection: "RECONNECTING" });
+
+const detailsToggle = document.getElementById("toggle-details");
+if (detailsToggle) {
+  detailsToggle.checked = ui.showDetails;
+  detailsToggle.addEventListener("change", () => {
+    ui.showDetails = !!detailsToggle.checked;
+    if (ui.last) renderChart(ui.last);
+  });
+}
+
 connect();

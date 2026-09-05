@@ -17,14 +17,41 @@
     <div id="app">
       <header id="header" class="fp-header"></header>
       <section id="fight" class="fp-fight"></section>
-      <div class="fp-legend">
-        <span><b style="color:var(--sell)">LEFT</b> = aggressive sell (hit the bid)</span>
-        <span><b style="color:var(--text-3)">×</b> = separator</span>
-        <span><b style="color:var(--buy)">RIGHT</b> = aggressive buy (hit the ask)</span>
-        <span><i class="sw cancel"></i> <b>Cb</b> cancel bid · <b>Ca</b> cancel ask</span>
-        <span><i class="sw refill"></i> <b>Rb</b> refill bid · <b>Ra</b> refill ask</span>
-        <span class="dim">Left column = resting book depth (A ask / B bid $) · ~30 levels each side</span>
+
+      <div class="fp-guide">
+        <div class="guide-card">
+          <div class="guide-title">How to read one cell</div>
+          <div class="guide-cell-demo">
+            <div class="demo-row sell"><span>Sellers</span><b>$12K</b></div>
+            <div class="demo-row buy"><span>Buyers</span><b>$40K</b></div>
+          </div>
+          <div class="guide-text">
+            <b style="color:var(--sell)">Sellers</b> = market sells that hit the <b>bid</b> (pressure down).<br />
+            <b style="color:var(--buy)">Buyers</b> = market buys that hit the <b>ask</b> (pressure up).<br />
+            Bigger side in that box was more aggressive at that price.
+          </div>
+        </div>
+        <div class="guide-card">
+          <div class="guide-title">Left column</div>
+          <div class="guide-text">
+            Resting book still waiting:<br />
+            <b style="color:var(--sell)">ASK</b> = sellers’ limit orders above price.<br />
+            <b style="color:var(--buy)">BID</b> = buyers’ limit orders below price.
+          </div>
+        </div>
+        <div class="guide-card">
+          <div class="guide-title">Bottom Δ</div>
+          <div class="guide-text">
+            <b style="color:var(--buy)">Green Δ</b> = more buying than selling in that time column.<br />
+            <b style="color:var(--sell)">Red Δ</b> = more selling than buying.
+          </div>
+          <label class="guide-toggle">
+            <input type="checkbox" id="toggle-details" />
+            Show cancel / refill details
+          </label>
+        </div>
       </div>
+
       <main id="chart" class="fp-chart"></main>
       <footer id="footer" class="fp-footer"></footer>
     </div>
