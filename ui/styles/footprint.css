@@ -1,0 +1,567 @@
+/* Footprint-first terminal */
+html,
+body {
+  margin: 0;
+  height: 100%;
+  background: var(--bg-0);
+  color: var(--text-0);
+  font-family: var(--font);
+  font-size: 12px;
+}
+
+#app {
+  height: 100vh;
+  display: grid;
+  grid-template-rows: auto auto auto 1fr auto;
+  min-height: 0;
+}
+
+.fp-header {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 8px 12px;
+  background: var(--bg-1);
+  border-bottom: 1px solid var(--border-1);
+  flex-wrap: wrap;
+}
+
+.fp-header .sym {
+  font-weight: 600;
+  font-size: 14px;
+  letter-spacing: 0.04em;
+}
+
+.fp-header .px {
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.fp-header .meta {
+  display: flex;
+  gap: 12px;
+  color: var(--text-2);
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+}
+
+.fp-header .meta b {
+  color: var(--text-0);
+  font-weight: 500;
+}
+
+.fp-header .state {
+  margin-left: auto;
+  font-weight: 650;
+  letter-spacing: 0.04em;
+  font-size: 12px;
+}
+
+.fp-header .controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+select,
+.seg {
+  background: var(--bg-3);
+  border: 1px solid var(--border-1);
+  color: var(--text-1);
+  border-radius: var(--radius);
+  font: inherit;
+  font-size: 11px;
+}
+
+select {
+  padding: 4px 8px;
+}
+
+.seg {
+  display: inline-flex;
+  padding: 2px;
+  gap: 2px;
+}
+
+.seg button {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  color: var(--text-2);
+  font: inherit;
+  font-family: var(--mono);
+  padding: 3px 7px;
+  border-radius: 3px;
+  cursor: pointer;
+}
+
+.seg button.active {
+  background: var(--bg-4);
+  color: var(--text-0);
+}
+
+.conn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  padding: 3px 7px;
+  border-radius: var(--radius);
+  border: 1px solid var(--border-1);
+}
+
+.conn::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.conn.live {
+  color: var(--live);
+  background: var(--buy-dim);
+}
+.conn.reconnecting {
+  color: var(--reconnect);
+  background: var(--cancel-dim);
+}
+.conn.disconnected {
+  color: var(--dead);
+  background: var(--sell-dim);
+}
+
+.fp-fight {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  padding: 8px 12px;
+  background: var(--bg-1);
+  border-bottom: 1px solid var(--border-1);
+}
+
+.fight-card {
+  border: 1px solid var(--border-1);
+  border-radius: var(--radius);
+  background: var(--bg-2);
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.fight-card.buy {
+  border-left: 3px solid var(--buy);
+}
+.fight-card.sell {
+  border-left: 3px solid var(--sell);
+}
+
+.fight-card .flow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-2);
+}
+
+.fight-card .flow .agg {
+  font-weight: 650;
+}
+.fight-card.buy .flow .agg {
+  color: var(--buy);
+}
+.fight-card.sell .flow .agg {
+  color: var(--sell);
+}
+.fight-card .flow .pas {
+  color: var(--passive);
+  font-weight: 650;
+}
+.fight-card .flow .arrow {
+  color: var(--text-3);
+}
+
+.fight-meter {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  height: 12px;
+  border-radius: 2px;
+  overflow: hidden;
+  border: 1px solid var(--border-1);
+  background: var(--bg-4);
+}
+
+.fight-meter .force {
+  background: var(--buy);
+}
+.fight-card.sell .fight-meter .force {
+  background: var(--sell);
+}
+.fight-meter .resist {
+  background: var(--passive);
+  opacity: 0.75;
+}
+
+.fight-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 14px;
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 11px;
+  color: var(--text-2);
+}
+
+.fight-card .flow .tf {
+  margin-left: auto;
+  color: var(--text-3);
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.fight-stats span {
+  display: inline-flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 72px;
+}
+
+.fight-stats small {
+  color: var(--text-3);
+  font-size: 9px;
+  font-weight: 400;
+}
+
+.fight-stats b {
+  color: var(--text-0);
+  font-weight: 600;
+  font-size: 13px;
+}
+.fight-stats .exec b {
+  color: var(--exec);
+}
+.fight-stats .cancel b {
+  color: var(--cancel);
+}
+.fight-stats .refill b {
+  color: var(--refill);
+}
+.fight-stats .pas b {
+  color: var(--passive);
+}
+
+.fight-result {
+  font-size: 13px;
+  font-weight: 650;
+  letter-spacing: 0.04em;
+}
+
+.fight-hint {
+  font-size: 10px;
+  color: var(--text-3);
+}
+
+@media (max-width: 900px) {
+  .fp-fight {
+    grid-template-columns: 1fr;
+  }
+}
+
+.fp-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  padding: 6px 12px;
+  border-bottom: 1px solid var(--border-0);
+  background: var(--bg-1);
+  color: var(--text-2);
+  font-size: 11px;
+}
+
+.fp-legend .dim {
+  color: var(--text-3);
+  margin-left: auto;
+}
+
+.fp-legend .sw {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 1px;
+  margin-right: 4px;
+  vertical-align: middle;
+}
+.fp-legend .sw.buy {
+  background: var(--buy);
+}
+.fp-legend .sw.sell {
+  background: var(--sell);
+}
+.fp-legend .sw.cancel {
+  background: var(--cancel);
+}
+.fp-legend .sw.refill {
+  background: var(--refill);
+}
+.fp-legend .sw.poc {
+  background: var(--wall);
+}
+
+.fp-chart {
+  min-height: 0;
+  overflow: auto;
+  padding: 8px;
+}
+
+.fp-grid {
+  display: grid;
+  grid-template-columns: 72px;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(88px, 1fr);
+  width: max-content;
+  min-width: 100%;
+  border: 1px solid var(--border-1);
+  background: var(--bg-2);
+}
+
+.fp-corner,
+.fp-price,
+.fp-time,
+.fp-delta,
+.fp-cell {
+  border-right: 1px solid var(--border-0);
+  border-bottom: 1px solid var(--border-0);
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+}
+
+.fp-corner {
+  position: sticky;
+  left: 0;
+  z-index: 3;
+  background: var(--bg-1);
+  padding: 4px 6px;
+  color: var(--text-3);
+  font-size: 10px;
+}
+
+.fp-time {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: var(--bg-1);
+  padding: 4px 4px;
+  text-align: center;
+  font-size: 10px;
+  color: var(--text-2);
+}
+
+.fp-price {
+  position: sticky;
+  left: 0;
+  z-index: 2;
+  background: var(--bg-1);
+  padding: 2px 6px;
+  text-align: right;
+  font-size: 11px;
+  color: var(--text-1);
+}
+
+.fp-price.bid {
+  color: var(--buy);
+}
+.fp-price.ask {
+  color: var(--sell);
+}
+.fp-price.last {
+  background: var(--bg-4);
+  color: var(--text-0);
+  font-weight: 600;
+}
+
+.fp-delta {
+  position: sticky;
+  bottom: 0;
+  z-index: 2;
+  background: var(--bg-1);
+  padding: 3px 4px;
+  text-align: center;
+  font-size: 10px;
+  font-weight: 600;
+}
+.fp-delta.pos {
+  color: var(--buy);
+}
+.fp-delta.neg {
+  color: var(--sell);
+}
+
+.fp-cell {
+  position: relative;
+  min-height: 22px;
+  padding: 2px 3px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 1px;
+  font-size: 10px;
+  line-height: 1.15;
+}
+
+.fp-cell .pair {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  gap: 2px;
+  align-items: center;
+}
+
+.fp-cell .sell {
+  color: var(--sell);
+  text-align: right;
+}
+.fp-cell .x {
+  color: var(--text-3);
+  text-align: center;
+}
+.fp-cell .buy {
+  color: var(--buy);
+  text-align: left;
+}
+
+.fp-cell .heat {
+  position: absolute;
+  inset: 0;
+  opacity: 0.22;
+  pointer-events: none;
+}
+
+.fp-cell.poc {
+  outline: 1px solid rgba(139, 123, 184, 0.55);
+  outline-offset: -1px;
+}
+
+.fp-cell.imb-buy .heat {
+  background: var(--buy);
+  opacity: 0.28;
+}
+.fp-cell.imb-sell .heat {
+  background: var(--sell);
+  opacity: 0.28;
+}
+
+.fp-cell .marks {
+  display: flex;
+  gap: 3px;
+  justify-content: center;
+  font-size: 8px;
+  letter-spacing: 0.02em;
+}
+.fp-cell .marks .c {
+  color: var(--cancel);
+}
+.fp-cell .marks .r {
+  color: var(--refill);
+}
+
+.fp-cell.empty {
+  background: transparent;
+}
+
+.fp-footer {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  padding: 8px 12px;
+  background: var(--bg-1);
+  border-top: 1px solid var(--border-1);
+}
+
+.fp-side {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px 10px;
+  border: 1px solid var(--border-1);
+  border-radius: var(--radius);
+  background: var(--bg-2);
+}
+
+.fp-side .title {
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-3);
+}
+
+.fp-side .result {
+  font-weight: 650;
+  letter-spacing: 0.03em;
+}
+
+.fp-side .nums {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+  color: var(--text-2);
+  font-size: 11px;
+}
+
+.fp-side .nums span b {
+  color: var(--text-0);
+  font-weight: 500;
+}
+.fp-side .nums .exec b {
+  color: var(--exec);
+}
+.fp-side .nums .cancel b {
+  color: var(--cancel);
+}
+.fp-side .nums .refill b {
+  color: var(--refill);
+}
+
+.note {
+  grid-column: 1 / -1;
+  color: var(--text-3);
+  font-size: 10px;
+}
+
+.empty-msg {
+  color: var(--text-3);
+  padding: 40px;
+  text-align: center;
+}
+
+.state-buy,
+.state-ask-sweep {
+  color: var(--buy);
+}
+.state-sell,
+.state-bid-sweep {
+  color: var(--sell);
+}
+.state-absorb {
+  color: var(--warn);
+}
+.state-wall {
+  color: var(--wall);
+}
+.state-neutral {
+  color: var(--text-2);
+}
+
+@media (max-width: 900px) {
+  .fp-footer {
+    grid-template-columns: 1fr;
+  }
+}

@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Footprint Order-Flow</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="/styles/tokens.css" />
+    <link rel="stylesheet" href="/styles/footprint.css" />
+  </head>
+  <body>
+    <div id="app">
+      <header id="header" class="fp-header"></header>
+      <section id="fight" class="fp-fight"></section>
+      <div class="fp-legend">
+        <span><b style="color:var(--sell)">LEFT</b> = aggressive sell (hit the bid)</span>
+        <span><b style="color:var(--text-3)">×</b> = separator</span>
+        <span><b style="color:var(--buy)">RIGHT</b> = aggressive buy (hit the ask)</span>
+        <span><i class="sw cancel"></i> <b>Cb</b> cancel bid · <b>Ca</b> cancel ask</span>
+        <span><i class="sw refill"></i> <b>Rb</b> refill bid · <b>Ra</b> refill ask</span>
+        <span class="dim">Passive = resting limit orders · Cancel = pulled without trade · Refill = replaced after hit</span>
+      </div>
+      <main id="chart" class="fp-chart"></main>
+      <footer id="footer" class="fp-footer"></footer>
+    </div>
+    <script type="module" src="/js/app.js"></script>
+  </body>
+</html>
