@@ -136,6 +136,7 @@ body {
   display: flex;
   align-items: center;
   gap: 8px;
+  flex-wrap: wrap;
 }
 
 select,
@@ -154,8 +155,10 @@ select {
 
 .seg {
   display: inline-flex;
+  flex-wrap: wrap;
   padding: 2px;
   gap: 2px;
+  max-width: min(100%, 420px);
 }
 
 .seg button {
@@ -173,6 +176,56 @@ select {
 .seg button.active {
   background: var(--bg-4);
   color: var(--text-0);
+}
+
+.fp-watchlist {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 16px;
+  padding: 6px 12px;
+  background: var(--bg-1);
+  border-bottom: 1px solid var(--border-1);
+}
+
+.watch-group {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+}
+
+.watch-label {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-2);
+  margin-right: 4px;
+}
+
+.watch-chip {
+  appearance: none;
+  border: 1px solid var(--border-1);
+  background: var(--bg-3);
+  color: var(--text-2);
+  font: inherit;
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 500;
+  padding: 3px 8px;
+  border-radius: var(--radius);
+  cursor: pointer;
+}
+
+.watch-chip:hover {
+  color: var(--text-0);
+  border-color: var(--border-2, var(--border-1));
+}
+
+.watch-chip.active {
+  background: var(--bg-4);
+  color: var(--text-0);
+  border-color: var(--text-2);
 }
 
 .conn {

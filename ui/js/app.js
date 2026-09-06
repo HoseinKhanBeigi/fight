@@ -3,7 +3,29 @@
  * All aggressive / passive / cancel / refill context on one chart.
  */
 
-const SYMBOLS = ["BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT", "XRPUSDT", "DOGEUSDT"];
+/** Same list as oderFlow `DEFAULT_WATCHLIST` + `EQUITY_PERP_WATCHLIST` */
+const CRYPTO_WATCHLIST = [
+  { symbol: "BTCUSDT", label: "BTC" },
+  { symbol: "ETHUSDT", label: "ETH" },
+  { symbol: "SOLUSDT", label: "SOL" },
+  { symbol: "AVAXUSDT", label: "AVAX" },
+  { symbol: "NEARUSDT", label: "NEAR" },
+  { symbol: "DOTUSDT", label: "DOT" },
+  { symbol: "LINKUSDT", label: "LINK" },
+  { symbol: "SUIUSDT", label: "SUI" },
+];
+const EQUITY_WATCHLIST = [
+  { symbol: "AAPLUSDT", label: "AAPL" },
+  { symbol: "AMZNUSDT", label: "AMZN" },
+  { symbol: "METAUSDT", label: "META" },
+  { symbol: "MSFTUSDT", label: "MSFT" },
+  { symbol: "GOOGLUSDT", label: "GOOGL" },
+  { symbol: "TSLAUSDT", label: "TSLA" },
+  { symbol: "AMDUSDT", label: "AMD" },
+  { symbol: "NVDAUSDT", label: "NVDA" },
+];
+const WATCHLIST = [...CRYPTO_WATCHLIST, ...EQUITY_WATCHLIST];
+
 /** Footprint / fight metric windows in seconds */
 const INTERVALS = [
   { sec: 1, label: "1s" },
@@ -12,6 +34,9 @@ const INTERVALS = [
   { sec: 30, label: "30s" },
   { sec: 60, label: "1m" },
   { sec: 300, label: "5m" },
+  { sec: 900, label: "15m" },
+  { sec: 1800, label: "30m" },
+  { sec: 2700, label: "45m" },
 ];
 
 const ui = {
@@ -134,6 +159,23 @@ function cellUsdText(qty, price) {
   return fmtUsd(n);
 }
 
+function switchSymbol(next) {
+  const sym = String(next || "").toUpperCase();
+  if (!sym || sym === ui.symbol) return;
+  ui.symbol = sym;
+  ui.switching = true;
+  const conn = $("h-conn");
+  if (conn) {
+    conn.textContent = "RECONNECTING";
+    conn.className = "conn reconnecting";
+  }
+  if ($("h-sym")) $("h-sym").textContent = sym;
+  const sel = $("sym");
+  if (sel) sel.value = sym;
+  syncWatchlistChips();
+  send({ type: "setSymbol", symbol: sym.toLowerCase() });
+}
+
 function ensureHeader() {
   if (ui.headerReady) return;
   $("header").innerHTML = `
@@ -148,7 +190,16 @@ function ensureHeader() {
     <div class="state state-neutral" id="h-state">NEUTRAL</div>
     <div class="controls">
       <select id="sym">
-        ${SYMBOLS.map((x) => `<option value="${x}">${x}</option>`).join("")}
+        <optgroup label="Crypto">
+          ${CRYPTO_WATCHLIST.map(
+            (c) => `<option value="${c.symbol}">${c.label}</option>`
+          ).join("")}
+        </optgroup>
+        <optgroup label="Equity perps">
+          ${EQUITY_WATCHLIST.map(
+            (c) => `<option value="${c.symbol}">${c.label}</option>`
+          ).join("")}
+        </optgroup>
       </select>
       <div class="seg" id="iv">
         ${INTERVALS.map(
@@ -159,18 +210,32 @@ function ensureHeader() {
     </div>
   `;
 
+  const watch = $("watchlist");
+  if (watch) {
+    watch.innerHTML = `
+      <div class="watch-group">
+        <span class="watch-label">Crypto</span>
+        ${CRYPTO_WATCHLIST.map(
+          (c) =>
+            `<button type="button" class="watch-chip" data-sym="${c.symbol}">${c.label}</button>`
+        ).join("")}
+      </div>
+      <div class="watch-group">
+        <span class="watch-label">Equity</span>
+        ${EQUITY_WATCHLIST.map(
+          (c) =>
+            `<button type="button" class="watch-chip" data-sym="${c.symbol}">${c.label}</button>`
+        ).join("")}
+      </div>
+    `;
+    watch.querySelectorAll(".watch-chip").forEach((btn) => {
+      btn.addEventListener("click", () => switchSymbol(btn.dataset.sym));
+    });
+  }
+
   const sel = $("sym");
   sel.value = ui.symbol;
-  sel.addEventListener("change", () => {
-    const next = sel.value;
-    if (!next || next === ui.symbol) return;
-    ui.symbol = next;
-    ui.switching = true;
-    $("h-conn").textContent = "RECONNECTING";
-    $("h-conn").className = "conn reconnecting";
-    $("h-sym").textContent = next;
-    send({ type: "setSymbol", symbol: next.toLowerCase() });
-  });
+  sel.addEventListener("change", () => switchSymbol(sel.value));
 
   $("iv").querySelectorAll("button").forEach((btn) => {
     btn.addEventListener("click", () => {
@@ -184,11 +249,18 @@ function ensureHeader() {
 
   ui.headerReady = true;
   syncIntervalButtons();
+  syncWatchlistChips();
 }
 
 function syncIntervalButtons() {
   $("iv")?.querySelectorAll("button").forEach((btn) => {
     btn.classList.toggle("active", Number(btn.dataset.n) === ui.interval);
+  });
+}
+
+function syncWatchlistChips() {
+  $("watchlist")?.querySelectorAll(".watch-chip").forEach((btn) => {
+    btn.classList.toggle("active", btn.dataset.sym === ui.symbol);
   });
 }
 
@@ -211,6 +283,7 @@ function renderHeader(s) {
   if (sel && document.activeElement !== sel) {
     sel.value = ui.symbol;
   }
+  syncWatchlistChips();
 
   $("h-sym").textContent = s?.symbol || ui.symbol;
   $("h-px").textContent = fmtPx(s?.price);
