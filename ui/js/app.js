@@ -234,8 +234,6 @@ function syncWatchlistChips() {
 function renderHeader(s) {
   ensureHeader();
 
-  // Don't overwrite the user's selection while a switch is in flight,
-  // unless the live feed has caught up to the requested symbol.
   if (s?.symbol) {
     const live = String(s.symbol).toUpperCase();
     if (ui.switching) {
@@ -246,7 +244,6 @@ function renderHeader(s) {
   }
 
   const sel = $("sym");
-  // Only set select value when dropdown is not open / not focused
   if (sel && document.activeElement !== sel) {
     sel.value = ui.symbol;
   }
@@ -289,7 +286,6 @@ function battleShare(battle) {
 
 function renderFight(s) {
   const px = s.price ?? s.bestBid ?? s.bestAsk;
-  // Prefer volumes for the selected timeframe (incl. 5m); fall back if still warming up
   const w = ui.interval;
   const flow =
     s.flowWindows?.[w] ||
@@ -344,9 +340,7 @@ function renderFight(s) {
 
   const b = battleShare(buy);
   const se = battleShare(sell);
-  const tf =
-    INTERVALS.find((it) => it.sec === w)?.label ||
-    `${w}s`;
+  const tf = INTERVALS.find((it) => it.sec === w)?.label || `${w}s`;
 
   $("fight").innerHTML = `
     <div class="fight-card buy">
@@ -397,7 +391,7 @@ function renderFight(s) {
 function renderFooter() {
   $("footer").innerHTML = `
     <div class="note" style="grid-column:1/-1">
-      All $ amounts are USDT (size × price). Cancel / refill ratios are live book estimates.
+      All $ amounts are USDT (size × price). Timeframe buttons change the fight window.
     </div>
   `;
 }
