@@ -12,6 +12,7 @@ body {
 #app {
   height: 100vh;
   display: grid;
+  /* header, watchlist, fight, chart, footer */
   grid-template-rows: auto auto auto 1fr auto;
   min-height: 0;
 }
@@ -226,6 +227,21 @@ select {
   background: var(--bg-4);
   color: var(--text-0);
   border-color: var(--text-2);
+}
+
+.details-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--text-2);
+  font-size: 11px;
+  cursor: pointer;
+  user-select: none;
+  white-space: nowrap;
+}
+
+.details-toggle input {
+  accent-color: var(--text-1);
 }
 
 .conn {

@@ -206,6 +206,10 @@ function ensureHeader() {
           (it) => `<button type="button" data-n="${it.sec}">${it.label}</button>`
         ).join("")}
       </div>
+      <label class="details-toggle" title="Show cancel / refill marks on the footprint">
+        <input type="checkbox" id="toggle-details" />
+        Details
+      </label>
       <div class="conn reconnecting" id="h-conn">RECONNECTING</div>
     </div>
   `;
