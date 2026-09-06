@@ -3,11 +3,11 @@
   "version": "1.0.0",
   "description": "Real-time Binance Futures order-flow monitor: aggressive flow, cancellations, refill, walls, sweeps",
   "type": "module",
-  "main": "src/index.js",
+  "main": "src/ui-server.js",
   "scripts": {
-    "start": "node src/index.js",
-    "monitor": "node src/index.js",
-    "ui": "node src/ui-server.js"
+    "start": "node src/ui-server.js",
+    "ui": "node src/ui-server.js",
+    "monitor": "node src/index.js"
   },
   "engines": {
     "node": ">=18"

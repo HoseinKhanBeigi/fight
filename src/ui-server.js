@@ -19,13 +19,16 @@ const UI_ROOT = path.resolve(path.join(__dirname, "..", "ui"));
 
 const args = process.argv.slice(2).filter((a) => a !== "--mock");
 const portArg = args.find((a) => a.startsWith("--port="));
-const port = portArg
-  ? Number(portArg.split("=")[1])
-  : args.includes("--port")
-    ? Number(args[args.indexOf("--port") + 1])
-    : 8787;
+const port = Number(
+  process.env.PORT ||
+    (portArg
+      ? portArg.split("=")[1]
+      : args.includes("--port")
+        ? args[args.indexOf("--port") + 1]
+        : 8787)
+);
 const symbolArg = args.find((a) => !a.startsWith("--") && a !== String(port));
-let symbol = (symbolArg || CONFIG.symbol).toLowerCase();
+let symbol = (process.env.SYMBOL || symbolArg || CONFIG.symbol).toLowerCase();
 let switching = false;
 let switchQueue = Promise.resolve();
 
@@ -73,6 +76,17 @@ function resolveUiPath(pathname) {
 const server = http.createServer((req, res) => {
   try {
     const url = new URL(req.url || "/", `http://${req.headers.host || "localhost"}`);
+    if (url.pathname === "/health" || url.pathname === "/healthz") {
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(
+        JSON.stringify({
+          ok: true,
+          symbol: symbol.toUpperCase(),
+          ready: !!monitor?.ready,
+        })
+      );
+      return;
+    }
     // Ignore websocket upgrade here; ws library handles /ws
     if (url.pathname === "/ws") {
       res.writeHead(400, { "Content-Type": "text/plain" });
@@ -252,15 +266,31 @@ wss.on("connection", (ws) => {
   });
 });
 
-server.listen(port, "0.0.0.0", async () => {
+server.listen(port, "0.0.0.0", () => {
   console.log(`UI folder      →  ${UI_ROOT}`);
-  console.log(`Order-flow UI  →  http://localhost:${port}`);
+  console.log(`Listening      →  0.0.0.0:${port}`);
+  console.log(`Health check   →  http://0.0.0.0:${port}/health`);
   console.log(`Live symbol    →  ${symbol.toUpperCase()} (real Binance Futures data)`);
   if (!fs.existsSync(path.join(UI_ROOT, "index.html"))) {
     console.error("ERROR: ui/index.html missing at", path.join(UI_ROOT, "index.html"));
   }
-  await startMonitor(symbol);
-  startBroadcast();
+  // Start market data after HTTP is already accepting traffic (Railway health checks)
+  startMonitor(symbol)
+    .then(() => startBroadcast())
+    .catch((err) => {
+      console.error("Failed to start monitor (HTTP still up):", err);
+      setTimeout(() => {
+        startMonitor(symbol)
+          .then(() => startBroadcast())
+          .catch((e) => console.error("Monitor retry failed:", e));
+      }, 5000);
+    });
+});
+
+process.on("SIGTERM", () => {
+  if (monitor) monitor.stop();
+  server.close();
+  process.exit(0);
 });
 
 process.on("SIGINT", () => {
