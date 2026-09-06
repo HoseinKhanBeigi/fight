@@ -1,6 +1,5 @@
 /**
- * Footprint-first live dashboard.
- * All aggressive / passive / cancel / refill context on one chart.
+ * Live order-flow dashboard (aggressive vs passive fight panel).
  */
 
 /** Same list as oderFlow `DEFAULT_WATCHLIST` + `EQUITY_PERP_WATCHLIST` */
@@ -26,7 +25,7 @@ const EQUITY_WATCHLIST = [
 ];
 const WATCHLIST = [...CRYPTO_WATCHLIST, ...EQUITY_WATCHLIST];
 
-/** Footprint / fight metric windows in seconds */
+/** Fight metric windows in seconds */
 const INTERVALS = [
   { sec: 1, label: "1s" },
   { sec: 5, label: "5s" },
@@ -44,10 +43,8 @@ const ui = {
   interval: 5,
   last: null,
   ticker24h: null,
-  stickRight: true,
   headerReady: false,
   switching: false,
-  showDetails: false,
 };
 
 function $(id) {
@@ -111,23 +108,6 @@ function fmtPx(n) {
   });
 }
 
-function clock(ts) {
-  const d = new Date(ts * 1000);
-  if (ui.interval >= 60) {
-    return d.toLocaleTimeString("en-GB", {
-      hour12: false,
-      hour: "2-digit",
-      minute: "2-digit",
-    });
-  }
-  return d.toLocaleTimeString("en-GB", {
-    hour12: false,
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-  });
-}
-
 function stateClass(state = "") {
   const s = String(state).toUpperCase();
   if (s.includes("ABSORPTION")) return "state-absorb";
@@ -144,19 +124,6 @@ function connClass(c) {
   if (x === "LIVE") return "live";
   if (x === "DISCONNECTED") return "disconnected";
   return "reconnecting";
-}
-
-function cellVolText(v) {
-  if (!v || v < 1e-8) return "";
-  if (v >= 10) return v.toFixed(1);
-  if (v >= 1) return v.toFixed(2);
-  return v.toFixed(3);
-}
-
-function cellUsdText(qty, price) {
-  const n = notional(qty, price);
-  if (n < 1) return "";
-  return fmtUsd(n);
 }
 
 function switchSymbol(next) {
@@ -206,10 +173,6 @@ function ensureHeader() {
           (it) => `<button type="button" data-n="${it.sec}">${it.label}</button>`
         ).join("")}
       </div>
-      <label class="details-toggle" title="Show cancel / refill marks on the footprint">
-        <input type="checkbox" id="toggle-details" />
-        Details
-      </label>
       <div class="conn reconnecting" id="h-conn">RECONNECTING</div>
     </div>
   `;
@@ -247,7 +210,7 @@ function ensureHeader() {
       if (!n || n === ui.interval) return;
       ui.interval = n;
       syncIntervalButtons();
-      send({ type: "setFootprintInterval", intervalSec: n });
+      if (ui.last) renderFight(ui.last);
     });
   });
 
@@ -271,8 +234,6 @@ function syncWatchlistChips() {
 function renderHeader(s) {
   ensureHeader();
 
-  // Don't overwrite the user's selection while a switch is in flight,
-  // unless the live feed has caught up to the requested symbol.
   if (s?.symbol) {
     const live = String(s.symbol).toUpperCase();
     if (ui.switching) {
@@ -283,7 +244,6 @@ function renderHeader(s) {
   }
 
   const sel = $("sym");
-  // Only set select value when dropdown is not open / not focused
   if (sel && document.activeElement !== sel) {
     sel.value = ui.symbol;
   }
@@ -310,154 +270,10 @@ function renderHeader(s) {
   st.className = `state ${stateClass(s?.state)}`;
 
   const conn = $("h-conn");
-  let c = s?.connection || "RECONNECTING";
-  let connTitle = s?.status || "";
-  if (s?.history?.status === "loading") {
-    c = "RECONNECTING";
-    connTitle = s.status || "Backfilling history…";
-    conn.textContent = "HISTORY";
-  } else {
-    conn.textContent = c;
-  }
+  const c = s?.connection || "RECONNECTING";
+  conn.textContent = c;
   conn.className = `conn ${connClass(c)}`;
-  conn.title = connTitle;
-
-  if (s?.footprint?.intervalSec && !ui.switching) {
-    ui.interval = s.footprint.intervalSec;
-    syncIntervalButtons();
-  }
-}
-
-function resolveResting(resting, p) {
-  if (resting[p]) return resting[p];
-  if (resting[String(p)]) return resting[String(p)];
-  for (const [k, v] of Object.entries(resting)) {
-    if (Math.abs(Number(k) - p) < 1e-8) return v;
-  }
-  return null;
-}
-
-function renderChart(s) {
-  const fp = s.footprint;
-  const el = $("chart");
-  if (!fp || !fp.columns?.length || !fp.prices?.length) {
-    el.innerHTML = `<div class="empty-msg">${
-      ui.switching ? `Switching to ${ui.symbol}…` : "Waiting for trades to build the chart…"
-    }</div>`;
-    return;
-  }
-
-  const prices = fp.prices;
-  const cols = fp.columns;
-  const last = fp.lastPrice ?? s.price;
-  const maxVol = fp.maxVol || 1;
-  const maxRest = fp.maxResting || 1;
-  const resting = fp.resting || {};
-  const bestBid = s.bestBid;
-  const bestAsk = s.bestAsk;
-
-  // Header row needs 2 lines for Buyers/Sellers labels clarity in corner
-  const rowCount = 1 + prices.length + 1;
-  let html = `<div class="fp-grid simple" style="grid-template-rows: repeat(${rowCount}, auto)">`;
-
-  html += `<div class="fp-corner">Price<br/><span class="sub">book waiting</span></div>`;
-  for (const p of prices) {
-    const r = resolveResting(resting, p);
-    let cls = "fp-price";
-    if (last != null && Math.abs(p - last) < 1e-9) cls += " last";
-    else if (r?.side === "ask" || (bestAsk != null && p >= bestAsk)) cls += " ask";
-    else if (r?.side === "bid" || (bestBid != null && p <= bestBid)) cls += " bid";
-
-    const qty = r?.quantity || 0;
-    const barW = qty > 0 ? Math.min(100, (qty / maxRest) * 100) : 0;
-    const sideLabel = r?.side === "ask" ? "ASK" : r?.side === "bid" ? "BID" : "";
-    html += `<div class="${cls}" title="${sideLabel || "No resting size"} ${fmtUsd(notional(qty, p))}">
-      <div class="rest-bar ${r?.side || ""}" style="width:${barW}%"></div>
-      <div class="rest-main">
-        <span class="rest-px">${fmtPx(p)}</span>
-        <span class="rest-sz">${sideLabel ? `${sideLabel} ${fmtUsd(notional(qty, p))}` : ""}</span>
-      </div>
-    </div>`;
-  }
-  html += `<div class="fp-corner">Who won<br/><span class="sub">this column</span></div>`;
-
-  for (const col of cols) {
-    html += `<div class="fp-time">${clock(col.t)}</div>`;
-    for (const p of prices) {
-      const cell = col.cells[p];
-      const hasTrade = cell && (cell.buy > 1e-10 || cell.sell > 1e-10);
-      const hasDetail =
-        cell &&
-        (cell.cancelAsk > 1e-10 ||
-          cell.cancelBid > 1e-10 ||
-          cell.refillAsk > 1e-10 ||
-          cell.refillBid > 1e-10);
-
-      if (!hasTrade && !(ui.showDetails && hasDetail)) {
-        html += `<div class="fp-cell empty"></div>`;
-        continue;
-      }
-
-      const buy = cell?.buy || 0;
-      const sell = cell?.sell || 0;
-      const total = buy + sell;
-      const heat = total > 0 ? Math.min(1, total / maxVol) : 0;
-      let cls = "fp-cell simple-cell";
-      if (col.poc != null && Math.abs(col.poc - p) < 1e-9) cls += " poc";
-
-      const buyWins = buy > sell * 1.15;
-      const sellWins = sell > buy * 1.15;
-      if (buyWins) cls += " imb-buy";
-      else if (sellWins) cls += " imb-sell";
-
-      const buyHeat =
-        buy >= sell
-          ? `rgba(61,154,106,${0.1 + heat * 0.32})`
-          : `rgba(196,92,92,${0.1 + heat * 0.32})`;
-
-      const sellTxt = cellUsdText(sell, p) || "—";
-      const buyTxt = cellUsdText(buy, p) || "—";
-      const winner =
-        buyWins ? "BUYERS" : sellWins ? "SELLERS" : total > 0 ? "EVEN" : "";
-
-      let details = "";
-      if (ui.showDetails && hasDetail) {
-        const bits = [];
-        if (cell.cancelBid > 1e-8)
-          bits.push(`<span class="c">bid pulled ${fmtUsd(notional(cell.cancelBid, p))}</span>`);
-        if (cell.cancelAsk > 1e-8)
-          bits.push(`<span class="c">ask pulled ${fmtUsd(notional(cell.cancelAsk, p))}</span>`);
-        if (cell.refillBid > 1e-8)
-          bits.push(`<span class="r">bid back ${fmtUsd(notional(cell.refillBid, p))}</span>`);
-        if (cell.refillAsk > 1e-8)
-          bits.push(`<span class="r">ask back ${fmtUsd(notional(cell.refillAsk, p))}</span>`);
-        details = `<div class="marks">${bits.join(" · ")}</div>`;
-      }
-
-      html += `<div class="${cls}" title="At ${fmtPx(p)}: sellers hit bid ${fmtUsd(notional(sell, p))}, buyers hit ask ${fmtUsd(notional(buy, p))}">
-        <div class="heat" style="background:${buyHeat};opacity:1"></div>
-        <div class="stack">
-          <div class="stack-row sell"><span class="lab">Sellers</span><span class="val">${sellTxt}</span></div>
-          <div class="stack-row buy"><span class="lab">Buyers</span><span class="val">${buyTxt}</span></div>
-        </div>
-        ${winner ? `<div class="winner ${buyWins ? "buy" : sellWins ? "sell" : ""}">${winner}</div>` : ""}
-        ${details}
-      </div>`;
-    }
-    const midPx = col.poc ?? last ?? s.price;
-    const dNotional = notional(col.delta, midPx);
-    const dCls = col.delta >= 0 ? "pos" : "neg";
-    const dLabel =
-      col.delta > 0 ? "Buyers +" : col.delta < 0 ? "Sellers +" : "Even";
-    html += `<div class="fp-delta ${dCls}" title="Buy volume − sell volume in this time column">
-      ${dLabel}<br/>${fmtUsd(Math.abs(dNotional))}
-    </div>`;
-  }
-
-  html += `</div>`;
-  const nearRight = el.scrollWidth - el.clientWidth - el.scrollLeft < 40;
-  el.innerHTML = html;
-  if (ui.stickRight || nearRight) el.scrollLeft = el.scrollWidth;
+  conn.title = s?.status || "";
 }
 
 function battleShare(battle) {
@@ -470,7 +286,6 @@ function battleShare(battle) {
 
 function renderFight(s) {
   const px = s.price ?? s.bestBid ?? s.bestAsk;
-  // Prefer volumes for the selected timeframe (incl. 5m); fall back if still warming up
   const w = ui.interval;
   const flow =
     s.flowWindows?.[w] ||
@@ -525,9 +340,7 @@ function renderFight(s) {
 
   const b = battleShare(buy);
   const se = battleShare(sell);
-  const tf =
-    INTERVALS.find((it) => it.sec === w)?.label ||
-    `${w}s`;
+  const tf = INTERVALS.find((it) => it.sec === w)?.label || `${w}s`;
 
   $("fight").innerHTML = `
     <div class="fight-card buy">
@@ -575,22 +388,10 @@ function renderFight(s) {
   `;
 }
 
-function renderFooter(s) {
-  const h = s.history || {};
-  let histLine = "";
-  if (h.status === "loading") {
-    histLine = `Loading past trades… ${(h.loaded || 0).toLocaleString()}`;
-  } else if (h.status === "done") {
-    histLine = `Loaded ${(h.loaded || 0).toLocaleString()} past trades (~${Math.round((h.lookbackSec || 0) / 60)}m).`;
-  } else if (h.status === "error") {
-    histLine = `History error: ${h.error || "unknown"}`;
-  }
-
+function renderFooter() {
   $("footer").innerHTML = `
     <div class="note" style="grid-column:1/-1">
-      All $ amounts are USDT (size × price).
-      ${histLine}
-      Cancel/refill stay hidden unless you enable “Show cancel / refill details”.
+      All $ amounts are USDT (size × price). Timeframe buttons change the fight window.
     </div>
   `;
 }
@@ -599,8 +400,7 @@ function renderAll(s) {
   ui.last = s;
   renderHeader(s);
   renderFight(s);
-  renderChart(s);
-  renderFooter(s);
+  renderFooter();
 }
 
 let ws;
@@ -613,9 +413,7 @@ function connect() {
   ws = new WebSocket(`${proto}://${location.host}/ws`);
 
   ws.onopen = () => {
-    // Sync to whatever the user currently has selected — do not force BTC
     send({ type: "setSymbol", symbol: ui.symbol.toLowerCase() });
-    send({ type: "setFootprintInterval", intervalSec: ui.interval });
   };
 
   ws.onmessage = (msg) => {
@@ -650,21 +448,7 @@ function connect() {
   };
 }
 
-$("chart")?.addEventListener("scroll", () => {
-  const el = $("chart");
-  ui.stickRight = el.scrollWidth - el.clientWidth - el.scrollLeft < 40;
-});
-
 ensureHeader();
 renderHeader({ symbol: ui.symbol, connection: "RECONNECTING" });
-
-const detailsToggle = document.getElementById("toggle-details");
-if (detailsToggle) {
-  detailsToggle.checked = ui.showDetails;
-  detailsToggle.addEventListener("change", () => {
-    ui.showDetails = !!detailsToggle.checked;
-    if (ui.last) renderChart(ui.last);
-  });
-}
-
+renderFooter();
 connect();

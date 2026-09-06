@@ -12,8 +12,8 @@ body {
 #app {
   height: 100vh;
   display: grid;
-  /* header, watchlist, fight, chart, footer */
-  grid-template-rows: auto auto auto 1fr auto;
+  /* header, watchlist, fight, footer */
+  grid-template-rows: auto auto 1fr auto;
   min-height: 0;
 }
 
@@ -281,9 +281,11 @@ select {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 10px;
-  padding: 8px 12px;
+  padding: 12px;
   background: var(--bg-1);
-  border-bottom: 1px solid var(--border-1);
+  min-height: 0;
+  overflow: auto;
+  align-content: start;
 }
 
 .fight-card {
