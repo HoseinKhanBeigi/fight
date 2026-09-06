@@ -13,6 +13,11 @@ import { fileURLToPath } from "node:url";
 import { WebSocketServer } from "ws";
 import { CONFIG } from "./config.js";
 import { OrderFlowMonitor } from "./monitor.js";
+import {
+  CRYPTO_WATCHLIST,
+  EQUITY_WATCHLIST,
+  WATCHLIST,
+} from "./watchlist.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const UI_ROOT = path.resolve(path.join(__dirname, "..", "ui"));
@@ -83,6 +88,17 @@ const server = http.createServer((req, res) => {
           ok: true,
           symbol: symbol.toUpperCase(),
           ready: !!monitor?.ready,
+        })
+      );
+      return;
+    }
+    if (url.pathname === "/api/watchlist") {
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(
+        JSON.stringify({
+          crypto: CRYPTO_WATCHLIST,
+          equity: EQUITY_WATCHLIST,
+          coins: WATCHLIST,
         })
       );
       return;

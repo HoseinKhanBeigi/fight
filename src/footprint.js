@@ -35,7 +35,10 @@ export class FootprintAggregator {
     if (!n || n === this.intervalSec) return;
     this.intervalSec = n;
     // Keep a usable history length per timeframe
-    if (n >= 300) this.maxColumns = 24; // ~2h of 5m bars
+    if (n >= 2700) this.maxColumns = 16; // ~12h of 45m
+    else if (n >= 1800) this.maxColumns = 16; // ~8h of 30m
+    else if (n >= 900) this.maxColumns = 20; // ~5h of 15m
+    else if (n >= 300) this.maxColumns = 24; // ~2h of 5m
     else if (n >= 60) this.maxColumns = 36;
     else this.maxColumns = 48;
     this.columns.clear();

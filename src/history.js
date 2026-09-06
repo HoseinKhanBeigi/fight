@@ -70,6 +70,17 @@ export async function fetchAggTradesHistory({
 /** Sensible lookback (seconds) for a footprint interval. */
 export function lookbackForInterval(intervalSec, maxColumns) {
   const cols = maxColumns || 48;
-  // Fill the visible columns, plus a little buffer
-  return Math.max(intervalSec * cols, intervalSec * 12);
+  const raw = Math.max(intervalSec * cols, intervalSec * 12);
+  // Cap REST backfill so Railway / rate limits stay sane
+  const cap =
+    intervalSec >= 2700
+      ? 12 * 3600
+      : intervalSec >= 1800
+        ? 10 * 3600
+        : intervalSec >= 900
+          ? 8 * 3600
+          : intervalSec >= 300
+            ? 4 * 3600
+            : 2 * 3600;
+  return Math.min(raw, cap);
 }
