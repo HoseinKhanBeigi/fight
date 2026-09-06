@@ -18,41 +18,6 @@
       <header id="header" class="fp-header"></header>
       <nav id="watchlist" class="fp-watchlist" aria-label="Watchlist"></nav>
       <section id="fight" class="fp-fight"></section>
-
-      <div class="fp-guide">
-        <div class="guide-card">
-          <div class="guide-title">How to read one cell</div>
-          <div class="guide-cell-demo">
-            <div class="demo-row sell"><span>Sellers</span><b>$12K</b></div>
-            <div class="demo-row buy"><span>Buyers</span><b>$40K</b></div>
-          </div>
-          <div class="guide-text">
-            <b style="color:var(--sell)">Sellers</b> = market sells that hit the <b>bid</b> (pressure down).<br />
-            <b style="color:var(--buy)">Buyers</b> = market buys that hit the <b>ask</b> (pressure up).<br />
-            Bigger side in that box was more aggressive at that price.
-          </div>
-        </div>
-        <div class="guide-card">
-          <div class="guide-title">Left column</div>
-          <div class="guide-text">
-            Resting book still waiting:<br />
-            <b style="color:var(--sell)">ASK</b> = sellers’ limit orders above price.<br />
-            <b style="color:var(--buy)">BID</b> = buyers’ limit orders below price.
-          </div>
-        </div>
-        <div class="guide-card">
-          <div class="guide-title">Bottom Δ</div>
-          <div class="guide-text">
-            <b style="color:var(--buy)">Green Δ</b> = more buying than selling in that time column.<br />
-            <b style="color:var(--sell)">Red Δ</b> = more selling than buying.
-          </div>
-          <label class="guide-toggle">
-            <input type="checkbox" id="toggle-details" />
-            Show cancel / refill details
-          </label>
-        </div>
-      </div>
-
       <main id="chart" class="fp-chart"></main>
       <footer id="footer" class="fp-footer"></footer>
     </div>
