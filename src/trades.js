@@ -54,6 +54,8 @@ export class AggressiveFlowTracker {
     this.matchTolerance = matchToleranceMs / 1000;
     /** @type {TradePrint[]} */
     this.trades = [];
+    /** @type {Set<number|string>} */
+    this.seenIds = new Set();
     /** @type {Map<number, {ts:number, qty:number}[]>} */
     this.buysByPrice = new Map();
     /** @type {Map<number, {ts:number, qty:number}[]>} */
@@ -63,7 +65,25 @@ export class AggressiveFlowTracker {
     this.priceHistory = [];
   }
 
+  clear() {
+    this.trades = [];
+    this.seenIds.clear();
+    this.buysByPrice.clear();
+    this.sellsByPrice.clear();
+    this.lastPrice = null;
+    this.priceHistory = [];
+  }
+
+  /**
+   * @returns {boolean} true if the trade was accepted (not a duplicate)
+   */
   onTrade(trade) {
+    const id = trade.tradeId;
+    if (id != null && id !== 0) {
+      if (this.seenIds.has(id)) return false;
+      this.seenIds.add(id);
+    }
+
     this.trades.push(trade);
     this.lastPrice = trade.price;
     this.priceHistory.push({ ts: trade.timestamp, price: trade.price });
@@ -73,12 +93,27 @@ export class AggressiveFlowTracker {
     if (!map.has(trade.price)) map.set(trade.price, []);
     map.get(trade.price).push({ ts: trade.timestamp, qty: trade.quantity });
     this._prune(trade.timestamp);
+    return true;
   }
 
   _prune(now) {
     const cutoff = now - this.maxWindow - 1;
-    while (this.trades.length && this.trades[0].timestamp < cutoff) {
-      this.trades.shift();
+    // Trades may be unsorted after backfill — drop any stale prints, not only the head
+    if (this.trades.length) {
+      const kept = [];
+      for (const t of this.trades) {
+        if (t.timestamp >= cutoff) kept.push(t);
+        else if (t.tradeId != null && t.tradeId !== 0) this.seenIds.delete(t.tradeId);
+      }
+      this.trades = kept;
+    }
+
+    // Bound seen-id set if prune left it large (ids from dropped trades already deleted above)
+    if (this.seenIds.size > this.trades.length * 2 + 1000) {
+      this.seenIds.clear();
+      for (const t of this.trades) {
+        if (t.tradeId != null && t.tradeId !== 0) this.seenIds.add(t.tradeId);
+      }
     }
 
     const matchCutoff = now - Math.max(this.matchTolerance * 4, 2);
@@ -88,20 +123,25 @@ export class AggressiveFlowTracker {
         if (!arr.length) map.delete(price);
       }
     }
+
+    while (this.priceHistory.length && this.priceHistory[0].ts < cutoff) {
+      this.priceHistory.shift();
+    }
   }
 
   windowStats(now = null) {
     if (now == null) {
       now = this.trades.length ? this.trades[this.trades.length - 1].timestamp : 0;
     }
+    this._prune(now);
+
     /** @type {Record<number, WindowStats>} */
     const result = {};
     for (const w of this.windows) result[w] = new WindowStats();
 
-    for (let i = this.trades.length - 1; i >= 0; i--) {
-      const trade = this.trades[i];
+    for (const trade of this.trades) {
       const age = now - trade.timestamp;
-      if (age > this.maxWindow) break;
+      if (age < 0 || age > this.maxWindow) continue;
       for (const w of this.windows) {
         if (age <= w) {
           if (trade.isAggressiveBuy) result[w].aggressiveBuyVolume += trade.quantity;

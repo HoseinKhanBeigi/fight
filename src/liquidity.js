@@ -116,6 +116,12 @@ export class LiquidityEngine {
     this._acc = this._emptyAcc();
   }
 
+  clear() {
+    this.recentEvents = [];
+    this.rolling = new RollingSideMetric(this.config.windows);
+    this._acc = this._emptyAcc();
+  }
+
   _emptyAcc() {
     return {
       bidCancel: 0,
@@ -144,14 +150,15 @@ export class LiquidityEngine {
     const estimatedCancel = Math.max(0, bookReduction - executed);
 
     const expectedRemaining = Math.max(0, previous - matchedTradeVolume);
-    const estimatedRefill = Math.max(0, current - expectedRemaining);
+    // New level in the window (scroll-in / first quote) is NOT a refill
+    const hadLevel = previous > this.epsilon;
+    const estimatedRefill = hadLevel ? Math.max(0, current - expectedRemaining) : 0;
 
-    // Pure stack when no trades explain increase (refill already covers post-trade restock)
+    // Pure stack only on an existing level (not scroll-in of a brand-new price)
     let estimatedStack = 0;
-    if (matchedTradeVolume < this.epsilon && bookIncrease > this.epsilon) {
+    if (hadLevel && matchedTradeVolume < this.epsilon && bookIncrease > this.epsilon) {
       estimatedStack = bookIncrease;
     } else if (matchedTradeVolume > this.epsilon && estimatedRefill > this.epsilon) {
-      // refill path — don't also count as stack
       estimatedStack = 0;
     }
 
@@ -245,14 +252,21 @@ export class LiquidityEngine {
 
     if (isPartial) {
       // Replace near book: diff previous vs new absolute top-N ladders.
-      // Levels that fall out of the top-N window due to price movement are
-      // scroll-outs — NOT cancellations.
+      // Levels that fall out of / enter the top-N window due to price movement are
+      // scroll-outs / scroll-ins — NOT cancellations / refills.
+      const seedOnly = !!isSnapshot; // first frame (or post-clear) — seed book, no metrics
       const incomingBids = event.b || [];
       const incomingAsks = event.a || [];
       const newBidPrices = incomingBids.map(([p]) => Number(p));
       const newAskPrices = incomingAsks.map(([p]) => Number(p));
       const worstBid = newBidPrices.length ? Math.min(...newBidPrices) : null;
       const worstAsk = newAskPrices.length ? Math.max(...newAskPrices) : null;
+
+      // Old window edges before we mutate the book (for scroll-in detection)
+      const oldBidPrices = [...book.getSideBook("bid").keys()];
+      const oldAskPrices = [...book.getSideBook("ask").keys()];
+      const oldWorstBid = oldBidPrices.length ? Math.min(...oldBidPrices) : null;
+      const oldWorstAsk = oldAskPrices.length ? Math.max(...oldAskPrices) : null;
 
       for (const side of ["bid", "ask"]) {
         const incoming = side === "bid" ? incomingBids : incomingAsks;
@@ -262,6 +276,8 @@ export class LiquidityEngine {
         }
         const oldPrices = new Set(book.getSideBook(side).keys());
         const allPrices = new Set([...oldPrices, ...newMap.keys()]);
+        const oldWorst = side === "bid" ? oldWorstBid : oldWorstAsk;
+        const newWorst = side === "bid" ? worstBid : worstAsk;
 
         for (const price of allPrices) {
           const previous = book.getSideBook(side).has(price)
@@ -273,11 +289,32 @@ export class LiquidityEngine {
           const scrolledOut =
             current <= 0 &&
             previous > 0 &&
-            ((side === "bid" && worstBid != null && price < worstBid) ||
-              (side === "ask" && worstAsk != null && price > worstAsk));
+            newWorst != null &&
+            ((side === "bid" && price < newWorst) ||
+              (side === "ask" && price > newWorst));
 
           if (scrolledOut) {
             book.setLevelQty(side, price, 0, now, false);
+            continue;
+          }
+
+          // Scroll-in: brand-new price entering the top-N window — update book only
+          const scrolledIn =
+            previous <= this.epsilon &&
+            current > this.epsilon &&
+            !oldPrices.has(price) &&
+            oldWorst != null &&
+            ((side === "bid" && price < oldWorst) ||
+              (side === "ask" && price > oldWorst));
+
+          if (seedOnly || scrolledIn) {
+            book.setLevelQty(side, price, current, now, false);
+            continue;
+          }
+
+          // Brand-new price with empty prior book edge case (cold start already seedOnly)
+          if (previous <= this.epsilon && current > this.epsilon && !oldPrices.has(price)) {
+            book.setLevelQty(side, price, current, now, false);
             continue;
           }
 
@@ -301,6 +338,8 @@ export class LiquidityEngine {
             false
           );
 
+          if (seedOnly) continue;
+
           const liqEvent = this.classifyLevelChange({
             side,
             price,
@@ -314,10 +353,12 @@ export class LiquidityEngine {
             level.lastTradeVolume = matched;
             level.confirmedTradeVolume += matched;
             level.estimatedCancelledVolume += Math.max(0, Math.max(0, prev - cur) - matched);
-            const expectedRemaining = Math.max(0, prev - matched);
-            level.estimatedRefillVolume += Math.max(0, cur - expectedRemaining);
-            if (matched < this.epsilon && cur > prev) {
-              level.estimatedStackVolume += cur - prev;
+            if (prev > this.epsilon) {
+              const expectedRemaining = Math.max(0, prev - matched);
+              level.estimatedRefillVolume += Math.max(0, cur - expectedRemaining);
+              if (matched < this.epsilon && cur > prev) {
+                level.estimatedStackVolume += cur - prev;
+              }
             }
             if (side === "ask") level.takerBuyVolume += matched;
             else level.takerSellVolume += matched;
@@ -334,7 +375,7 @@ export class LiquidityEngine {
       book.lastUpdateId = Number(event.u);
       book.lastEventTime = now;
       book.inferTickSize();
-      this.rolling.push({ ts: now, ...this._acc });
+      if (!seedOnly) this.rolling.push({ ts: now, ...this._acc });
       return events;
     }
 

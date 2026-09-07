@@ -36,6 +36,7 @@ export class OrderFlowMonitor {
       error: null,
     };
     this._backfillGen = 0;
+    this._backfilling = false;
     /** Deeper REST ladder for footprint rows (beyond live depth20). */
     this.depthLadder = { bids: [], asks: [], ts: 0 };
     this._depthLadderTimer = null;
@@ -52,6 +53,7 @@ export class OrderFlowMonitor {
       onResync: () => {
         this.ready = false;
         this.book.clear();
+        this.liquidity.clear();
       },
       onStatus: (msg) => {
         // Don't clobber an active backfill status line
@@ -118,16 +120,21 @@ export class OrderFlowMonitor {
   }
 
   /**
-   * Pull previous aggressive trades from Binance REST into footprint (+ recent flow).
+   * Pull previous aggressive trades from Binance REST into flow (+ footprint).
    * Does not reconstruct cancels/refills (API does not provide historical depth).
    */
   async backfillHistory(lookbackSec = null) {
     const gen = ++this._backfillGen;
-    const interval = this.footprint.intervalSec;
+    const maxWin = Math.max(...this.config.windows, 60);
+    // Prefer enough history to fill the longest fight window
     const lookback =
       lookbackSec ??
-      lookbackForInterval(interval, this.footprint.maxColumns);
+      Math.max(
+        maxWin + 30,
+        lookbackForInterval(this.footprint.intervalSec, this.footprint.maxColumns)
+      );
 
+    this._backfilling = true;
     this.history = {
       status: "loading",
       loaded: 0,
@@ -154,10 +161,13 @@ export class OrderFlowMonitor {
 
       if (gen !== this._backfillGen) return;
 
-      // Sort ascending and ingest
+      // Replace flow with a clean historical set (avoid live+history doubles)
+      this.flow.clear();
+      this.footprint.columns.clear();
+
       raw.sort((a, b) => Number(a.T) - Number(b.T));
       const nowSec = Date.now() / 1000;
-      const flowKeep = Math.max(...this.config.windows, 60);
+      const flowKeep = maxWin;
 
       for (const row of raw) {
         const trade = new TradePrint({
@@ -168,7 +178,6 @@ export class OrderFlowMonitor {
           tradeId: Number(row.a ?? 0),
         });
         this.footprint.onTrade(trade);
-        // Only keep recent prints in the rolling flow windows
         if (nowSec - trade.timestamp <= flowKeep + 5) {
           this.flow.onTrade(trade);
         }
@@ -190,6 +199,8 @@ export class OrderFlowMonitor {
         error: err.message || String(err),
       };
       this.status = `History backfill failed: ${err.message}`;
+    } finally {
+      if (gen === this._backfillGen) this._backfilling = false;
     }
   }
 
@@ -199,12 +210,13 @@ export class OrderFlowMonitor {
     const changed = n !== this.footprint.intervalSec;
     this.footprint.setInterval(n);
     if (changed) {
-      // Rebuild footprint from REST history for the new timeframe
       void this.backfillHistory();
     }
   }
 
   _onTrade(data) {
+    // While REST backfill rebuilds the window, skip live prints (dedupe also guards overlap)
+    if (this._backfilling) return;
     const ts = (data.T || data.E || Date.now()) / 1000;
     const trade = new TradePrint({
       timestamp: ts,
@@ -240,6 +252,8 @@ export class OrderFlowMonitor {
       this.status = "Crossed book detected — resyncing";
       this.feed.bookReady = false;
       this.ready = false;
+      this.book.clear();
+      this.liquidity.clear();
       this.feed.queueSync();
     }
   }
