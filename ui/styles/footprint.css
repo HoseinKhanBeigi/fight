@@ -478,9 +478,117 @@ select {
   color: var(--passive);
 }
 
+.whole-sides {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  gap: 12px;
+  align-items: center;
+  border: 1px solid var(--border-1);
+  border-radius: var(--radius);
+  background: var(--bg-3);
+  padding: 12px;
+}
+
+.whole-side {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.whole-side.sell {
+  flex-direction: row-reverse;
+  text-align: right;
+}
+
+.whole-side .side-bubble.whole {
+  background: color-mix(in srgb, var(--buy) 35%, var(--bg-4));
+  border-color: color-mix(in srgb, var(--buy) 55%, var(--border-1));
+}
+.whole-side.sell .side-bubble.whole {
+  background: color-mix(in srgb, var(--sell) 35%, var(--bg-4));
+  border-color: color-mix(in srgb, var(--sell) 55%, var(--border-1));
+}
+
+.whole-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  font-size: 10px;
+  font-family: var(--mono);
+  color: var(--text-3);
+}
+
+.whole-meta .whole-title {
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-2);
+  font-family: var(--font);
+  font-weight: 650;
+}
+
+.whole-meta b {
+  color: var(--text-1);
+  font-weight: 600;
+}
+
+.whole-meta .whole-total b {
+  color: var(--text-0);
+  font-size: 12px;
+}
+
+.whole-vs {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  min-width: 110px;
+}
+
+.whole-vs em {
+  font-style: normal;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  color: var(--text-2);
+}
+
+.side-vs-track.whole-track {
+  width: 100%;
+  min-width: 90px;
+  height: 10px;
+}
+
+.side-vs-track.whole-track i.buy {
+  background: var(--buy);
+}
+.side-vs-track.whole-track i.sell {
+  background: var(--sell);
+}
+
+.whole-verdict {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-align: center;
+}
+.whole-verdict.buy-lead {
+  color: var(--buy);
+}
+.whole-verdict.sell-lead {
+  color: var(--sell);
+}
+
 @media (max-width: 900px) {
   .side-presence-grid {
     grid-template-columns: 1fr;
+  }
+  .whole-sides {
+    grid-template-columns: 1fr;
+  }
+  .whole-side.sell {
+    flex-direction: row;
+    text-align: left;
   }
 }
 

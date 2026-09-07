@@ -349,9 +349,9 @@ function renderBattleCard(card, px, sideClass, titleAgg, titlePas, tf) {
 }
 
 /**
- * Two presence views:
- * 1) Opposing: Aggressive buyers vs Asks · Aggressive sellers vs Bids
- * 2) Same-side: Aggressive buyers vs Passive bids · Aggressive sellers vs Passive asks
+ * Presence maps:
+ * 1) Opposing book: Agg buyers vs Asks · Agg sellers vs Bids
+ * 2) Whole two-side: (Agg buyers + Passive bids) vs (Agg sellers + Passive asks)
  */
 function sidePresenceShape(s, w, px) {
   const flow =
@@ -365,41 +365,22 @@ function sidePresenceShape(s, w, px) {
   const passAsk = Number(s.askLiquidity ?? pack.buy?.defense?.currentLiquidity) || 0;
   const passBid = Number(s.bidLiquidity ?? pack.sell?.defense?.currentLiquidity) || 0;
 
-  const pair = (agg, pass, kind, mode) => {
+  const pair = (agg, pass, kind) => {
     const total = Math.max(agg + pass, 1e-9);
     const aggPct = Math.round((agg / total) * 100);
     const passPct = 100 - aggPct;
     const aggDom = agg >= pass;
-
-    let title;
-    let aggLabel;
-    let passLabel;
-    let verdict;
-    if (mode === "oppose") {
-      title = kind === "buy" ? "Buyers → Asks" : "Sellers → Bids";
-      aggLabel = kind === "buy" ? "Aggressive buyers" : "Aggressive sellers";
-      passLabel = kind === "buy" ? "Passive asks" : "Passive bids";
-      verdict =
-        kind === "buy"
-          ? aggDom
-            ? "AGGRESSIVE BUYERS PRESS ASKS"
-            : "PASSIVE ASKS OUTWEIGH BUYERS"
-          : aggDom
-            ? "AGGRESSIVE SELLERS PRESS BIDS"
-            : "PASSIVE BIDS OUTWEIGH SELLERS";
-    } else {
-      title = kind === "buy" ? "Buy side presence" : "Sell side presence";
-      aggLabel = kind === "buy" ? "Aggressive buyers" : "Aggressive sellers";
-      passLabel = kind === "buy" ? "Passive buyers (bids)" : "Passive sellers (asks)";
-      verdict =
-        kind === "buy"
-          ? aggDom
-            ? "AGGRESSIVE BUYERS LEAD"
-            : "PASSIVE BUYERS LEAD"
-          : aggDom
-            ? "AGGRESSIVE SELLERS LEAD"
-            : "PASSIVE SELLERS LEAD";
-    }
+    const title = kind === "buy" ? "Buyers → Asks" : "Sellers → Bids";
+    const aggLabel = kind === "buy" ? "Aggressive buyers" : "Aggressive sellers";
+    const passLabel = kind === "buy" ? "Passive asks" : "Passive bids";
+    const verdict =
+      kind === "buy"
+        ? aggDom
+          ? "AGGRESSIVE BUYERS PRESS ASKS"
+          : "PASSIVE ASKS OUTWEIGH BUYERS"
+        : aggDom
+          ? "AGGRESSIVE SELLERS PRESS BIDS"
+          : "PASSIVE BIDS OUTWEIGH SELLERS";
 
     const aggSize = 34 + (aggPct / 100) * 28;
     const passSize = 34 + (passPct / 100) * 28;
@@ -432,6 +413,16 @@ function sidePresenceShape(s, w, px) {
       </div>`;
   };
 
+  // Whole market sides: buy team vs sell team
+  const buyTeam = aggBuy + passBid; // aggressive buyers + passive buyers (bids)
+  const sellTeam = aggSell + passAsk; // aggressive sellers + passive sellers (asks)
+  const both = Math.max(buyTeam + sellTeam, 1e-9);
+  const buyPct = Math.round((buyTeam / both) * 100);
+  const sellPct = 100 - buyPct;
+  const buyLeads = buyTeam >= sellTeam;
+  const buySize = 42 + (buyPct / 100) * 36;
+  const sellSize = 42 + (sellPct / 100) * 36;
+
   return `
     <div class="side-presence" aria-label="Aggressive vs passive presence maps">
       <div class="side-presence-block">
@@ -440,18 +431,50 @@ function sidePresenceShape(s, w, px) {
           <small>Aggressive buyers vs asks · Aggressive sellers vs bids</small>
         </div>
         <div class="side-presence-grid">
-          ${pair(aggBuy, passAsk, "buy", "oppose")}
-          ${pair(aggSell, passBid, "sell", "oppose")}
+          ${pair(aggBuy, passAsk, "buy")}
+          ${pair(aggSell, passBid, "sell")}
         </div>
       </div>
       <div class="side-presence-block">
         <div class="side-presence-head">
-          <span>Same-side presence</span>
-          <small>Aggressive buyers vs passive bids · Aggressive sellers vs passive asks</small>
+          <span>Whole two-side</span>
+          <small>Aggressive buyers + passive bids  vs  Aggressive sellers + passive asks</small>
         </div>
-        <div class="side-presence-grid">
-          ${pair(aggBuy, passBid, "buy", "same")}
-          ${pair(aggSell, passAsk, "sell", "same")}
+        <div class="whole-sides">
+          <div class="whole-side buy">
+            <div class="side-bubble whole" style="width:${buySize}px;height:${buySize}px">
+              <b>${buyPct}</b>
+              <span>BUY</span>
+            </div>
+            <div class="whole-meta">
+              <div class="whole-title">Buy team</div>
+              <div>Aggressive buyers <b>${fmtUsd(notional(aggBuy, px))}</b></div>
+              <div>Passive bids <b>${fmtUsd(notional(passBid, px))}</b></div>
+              <div class="whole-total">Total <b>${fmtUsd(notional(buyTeam, px))}</b></div>
+            </div>
+          </div>
+          <div class="whole-vs">
+            <div class="side-vs-track whole-track">
+              <i class="buy" style="width:${buyPct}%"></i>
+              <i class="sell" style="width:${sellPct}%"></i>
+            </div>
+            <em>VS</em>
+            <div class="whole-verdict ${buyLeads ? "buy-lead" : "sell-lead"}">
+              ${buyLeads ? "BUY SIDE STRONGER" : "SELL SIDE STRONGER"}
+            </div>
+          </div>
+          <div class="whole-side sell">
+            <div class="side-bubble whole" style="width:${sellSize}px;height:${sellSize}px">
+              <b>${sellPct}</b>
+              <span>SELL</span>
+            </div>
+            <div class="whole-meta">
+              <div class="whole-title">Sell team</div>
+              <div>Aggressive sellers <b>${fmtUsd(notional(aggSell, px))}</b></div>
+              <div>Passive asks <b>${fmtUsd(notional(passAsk, px))}</b></div>
+              <div class="whole-total">Total <b>${fmtUsd(notional(sellTeam, px))}</b></div>
+            </div>
+          </div>
         </div>
       </div>
     </div>`;
