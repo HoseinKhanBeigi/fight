@@ -6,7 +6,7 @@ import { LocalOrderBook } from "./book.js";
 import { AggressiveFlowTracker, TradePrint } from "./trades.js";
 import { LiquidityEngine } from "./liquidity.js";
 import { WallTracker } from "./walls.js";
-import { MarketClassifier } from "./classifier.js";
+import { MarketClassifier, absorptionFlags } from "./classifier.js";
 import { FootprintAggregator } from "./footprint.js";
 import { fetchAggTradesHistory, lookbackForInterval } from "./history.js";
 
@@ -265,6 +265,12 @@ export class OrderFlowMonitor {
     const liqWindows = this.liquidity.ratios(liqRaw);
     const tick = this.book.tickSize;
     const priceChangeTicks5s = this.flow.priceChangeTicks(5, tick, now);
+    const priceChangeByWindow = Object.fromEntries(
+      this.config.windows.map((w) => [
+        w,
+        this.flow.priceChangeTicks(Math.min(w, 300), tick, now),
+      ])
+    );
 
     this.classifier.update({
       now,
@@ -274,7 +280,32 @@ export class OrderFlowMonitor {
       walls: this.walls,
       tickSize: tick,
       priceChangeTicks5s,
+      windowSec: 60,
     });
+
+    const askLiq = this.book.totalNearLiquidity("ask", 20);
+    const bidLiq = this.book.totalNearLiquidity("bid", 20);
+    const absorptionByWindow = Object.fromEntries(
+      this.config.windows.map((w) => {
+        const flow = flowWindows[w] || {};
+        const liq = liqWindows[w] || {};
+        return [
+          w,
+          absorptionFlags({
+            aggressiveBuyVolume: flow.aggressiveBuyVolume || 0,
+            aggressiveSellVolume: flow.aggressiveSellVolume || 0,
+            askLiquidity: askLiq,
+            bidLiquidity: bidLiq,
+            askExec: liq.askExec || 0,
+            bidExec: liq.bidExec || 0,
+            askRefill: liq.askRefill || 0,
+            bidRefill: liq.bidRefill || 0,
+            priceChangeTicks: priceChangeByWindow[w] ?? priceChangeTicks5s,
+            config: this.config,
+          }),
+        ];
+      })
+    );
 
     const bb = this.book.bestBid();
     const ba = this.book.bestAsk();
@@ -383,12 +414,14 @@ export class OrderFlowMonitor {
         ])
       ),
       liqWindows,
-      bidLiquidity: this.book.totalNearLiquidity("bid", 20),
-      askLiquidity: this.book.totalNearLiquidity("ask", 20),
+      bidLiquidity: bidLiq,
+      askLiquidity: askLiq,
       bidLiquidityRange: this.book.nearPriceRange("bid", 20),
       askLiquidityRange: this.book.nearPriceRange("ask", 20),
       buyBattle: this.classifier.buyBattle,
       sellBattle: this.classifier.sellBattle,
+      absorption: this.classifier.absorption,
+      absorptionByWindow,
       state: this.classifier.currentState,
       pendingState: this.classifier.pendingState,
       largestBidWall: serializeWall(this.walls.largestBidWall),

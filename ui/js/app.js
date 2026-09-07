@@ -93,11 +93,14 @@ function fmtRange(range) {
   return `${fmtPx(lo)} – ${fmtPx(hi)}`;
 }
 
-function statLine(label, qty, price, range, cls = "") {
+function statLine(label, qty, price, range, cls = "", absorbTag = "") {
   const band = fmtRange(range);
-  return `<span class="${cls}">${label} ${usdLine(qty, price)}${
-    band ? `<em class="px-band" title="Price window for this metric">${band}</em>` : ""
-  }</span>`;
+  const tag = absorbTag
+    ? `<em class="absorb-tag" title="Absorption estimate">${absorbTag}</em>`
+    : "";
+  return `<span class="${cls}${absorbTag ? " absorbing" : ""}">${label} ${usdLine(qty, price)}${
+    tag
+  }${band ? `<em class="px-band" title="Price window for this metric">${band}</em>` : ""}</span>`;
 }
 
 function fmtPx(n) {
@@ -123,7 +126,7 @@ function fmtPx(n) {
 
 function stateClass(state = "") {
   const s = String(state).toUpperCase();
-  if (s.includes("ABSORPTION")) return "state-absorb";
+  if (s.includes("ABSORB")) return "state-absorb";
   if (s.includes("TRUE ASK") || s.includes("ASK PULL") || s.includes("BUYERS") || s.includes("UPSIDE"))
     return "state-buy";
   if (s.includes("TRUE BID") || s.includes("BID PULL") || s.includes("SELLERS") || s.includes("DOWNSIDE"))
@@ -354,9 +357,21 @@ function renderFight(s) {
   const b = battleShare(buy);
   const se = battleShare(sell);
   const tf = INTERVALS.find((it) => it.sec === w)?.label || `${w}s`;
+  const abs =
+    s.absorptionByWindow?.[w] ||
+    s.absorptionByWindow?.[String(w)] ||
+    s.absorption ||
+    {};
+
+  const buyResult = abs.ask
+    ? "ASK ABSORPTION · BUYERS ABSORBED"
+    : buy.result || "NEUTRAL";
+  const sellResult = abs.bid
+    ? "BID ABSORPTION · SELLERS ABSORBED"
+    : sell.result || "NEUTRAL";
 
   $("fight").innerHTML = `
-    <div class="fight-card buy">
+    <div class="fight-card buy${abs.ask ? " is-absorbing" : ""}">
       <div class="flow">
         <span class="agg">Aggressive buyers</span>
         <span class="arrow">→</span>
@@ -368,16 +383,16 @@ function renderFight(s) {
         <div class="resist" style="width:${(b.resist * 100).toFixed(0)}%"></div>
       </div>
       <div class="fight-stats">
-        ${statLine("Aggressive", buy.aggressiveVolume, px, null)}
-        ${statLine("Ask liq", buy.passiveLiquidity, px, s.askLiquidityRange, "pas")}
+        ${statLine("Aggressive", buy.aggressiveVolume, px, null, "", abs.aggressiveBuy ? "ABSORBED" : "")}
+        ${statLine("Ask liq", buy.passiveLiquidity, px, s.askLiquidityRange, "pas", abs.ask ? "ABSORBING" : "")}
         ${statLine("Executed", buy.executed, px, liq.askExecRange, "exec")}
         ${statLine("Cancelled", buy.cancelled, px, liq.askCancelRange, "cancel")}
         ${statLine("Refilled", buy.refill, px, liq.askRefillRange, "refill")}
       </div>
-      <div class="fight-result ${stateClass(buy.result)}">${buy.result || "NEUTRAL"}</div>
-      <div class="fight-hint">Big $ = USDT notional. Price band = levels where that activity happened (est.).</div>
+      <div class="fight-result ${stateClass(buyResult)}">${buyResult}</div>
+      <div class="fight-hint">Absorption = aggression hits asks, book refills, price does not follow (est.).</div>
     </div>
-    <div class="fight-card sell">
+    <div class="fight-card sell${abs.bid ? " is-absorbing" : ""}">
       <div class="flow">
         <span class="agg">Aggressive sellers</span>
         <span class="arrow">→</span>
@@ -389,14 +404,14 @@ function renderFight(s) {
         <div class="resist" style="width:${(se.resist * 100).toFixed(0)}%"></div>
       </div>
       <div class="fight-stats">
-        ${statLine("Aggressive", sell.aggressiveVolume, px, null)}
-        ${statLine("Bid liq", sell.passiveLiquidity, px, s.bidLiquidityRange, "pas")}
+        ${statLine("Aggressive", sell.aggressiveVolume, px, null, "", abs.aggressiveSell ? "ABSORBED" : "")}
+        ${statLine("Bid liq", sell.passiveLiquidity, px, s.bidLiquidityRange, "pas", abs.bid ? "ABSORBING" : "")}
         ${statLine("Executed", sell.executed, px, liq.bidExecRange, "exec")}
         ${statLine("Cancelled", sell.cancelled, px, liq.bidCancelRange, "cancel")}
         ${statLine("Refilled", sell.refill, px, liq.bidRefillRange, "refill")}
       </div>
-      <div class="fight-result ${stateClass(sell.result)}">${sell.result || "NEUTRAL"}</div>
-      <div class="fight-hint">Big $ = USDT notional. Price band = levels where that activity happened (est.).</div>
+      <div class="fight-result ${stateClass(sellResult)}">${sellResult}</div>
+      <div class="fight-hint">Absorption = aggression hits bids, book refills, price does not follow (est.).</div>
     </div>
   `;
 }

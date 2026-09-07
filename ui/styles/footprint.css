@@ -409,6 +409,26 @@ select {
   color: var(--passive);
 }
 
+.fight-stats .absorb-tag {
+  font-style: normal;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  color: var(--warn);
+  margin-top: 2px;
+}
+
+.fight-stats span.absorbing {
+  outline: 1px solid color-mix(in srgb, var(--warn) 45%, transparent);
+  outline-offset: 2px;
+  border-radius: 3px;
+  padding: 2px 4px;
+}
+
+.fight-card.is-absorbing {
+  box-shadow: inset 3px 0 0 var(--warn);
+}
+
 .fight-result {
   font-size: 13px;
   font-weight: 650;
