@@ -296,7 +296,18 @@ select {
   padding: 10px 12px;
   display: flex;
   flex-direction: column;
+  gap: 14px;
+}
+
+.side-presence-block {
+  display: flex;
+  flex-direction: column;
   gap: 10px;
+}
+
+.side-presence-block + .side-presence-block {
+  padding-top: 12px;
+  border-top: 1px solid var(--border-1);
 }
 
 .side-presence-head {
