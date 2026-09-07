@@ -408,6 +408,9 @@ select {
 .fight-stats .pas b {
   color: var(--passive);
 }
+.fight-stats .absorb b {
+  color: var(--warn);
+}
 
 .fight-stats .absorb-tag {
   font-style: normal;

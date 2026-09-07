@@ -300,6 +300,16 @@ function battleShare(battle) {
   return { force, resist: 1 - force };
 }
 
+function mergeRanges(a, b) {
+  if (!a && !b) return null;
+  if (!a) return b;
+  if (!b) return a;
+  return {
+    lo: Math.min(a.lo, b.lo),
+    hi: Math.max(a.hi, b.hi),
+  };
+}
+
 function renderFight(s) {
   const px = s.price ?? s.bestBid ?? s.bestAsk;
   const w = ui.interval;
@@ -314,23 +324,36 @@ function renderFight(s) {
     s.liqWindows?.[300] ||
     {};
 
+  const abs =
+    s.absorptionByWindow?.[w] ||
+    s.absorptionByWindow?.[String(w)] ||
+    s.absorption ||
+    {};
+
+  const buyAbsorbed =
+    abs.askAbsorbedVolume ??
+    abs.aggressiveBuyAbsorbedVolume ??
+    Math.min(
+      flow.aggressiveBuyVolume || 0,
+      liq.askExec || 0,
+      liq.askRefill || 0
+    );
+  const sellAbsorbed =
+    abs.bidAbsorbedVolume ??
+    abs.aggressiveSellAbsorbedVolume ??
+    Math.min(
+      flow.aggressiveSellVolume || 0,
+      liq.bidExec || 0,
+      liq.bidRefill || 0
+    );
+
   const buy = {
     aggressiveVolume: flow.aggressiveBuyVolume ?? s.buyBattle?.aggressiveVolume ?? 0,
     passiveLiquidity: s.askLiquidity ?? s.buyBattle?.passiveLiquidity ?? 0,
     executed: liq.askExec ?? s.buyBattle?.executed ?? 0,
     cancelled: liq.askCancel ?? s.buyBattle?.cancelled ?? 0,
     refill: liq.askRefill ?? s.buyBattle?.refill ?? 0,
-    executionRatio:
-      (liq.askExec ?? 0) + (liq.askCancel ?? 0) > 0
-        ? (liq.askExec ?? 0) / Math.max((liq.askExec ?? 0) + (liq.askCancel ?? 0), 1e-9)
-        : s.buyBattle?.executionRatio ?? 0,
-    cancellationRatio:
-      (liq.askExec ?? 0) + (liq.askCancel ?? 0) > 0
-        ? (liq.askCancel ?? 0) / Math.max((liq.askExec ?? 0) + (liq.askCancel ?? 0), 1e-9)
-        : s.buyBattle?.cancellationRatio ?? 0,
-    refillRatio: s.buyBattle?.refillRatio ?? 0,
-    attackScore:
-      (flow.aggressiveBuyVolume ?? 0) / Math.max(s.askLiquidity || 0, 1e-9),
+    absorbed: buyAbsorbed,
     result: s.buyBattle?.result || "NEUTRAL",
   };
 
@@ -340,28 +363,41 @@ function renderFight(s) {
     executed: liq.bidExec ?? s.sellBattle?.executed ?? 0,
     cancelled: liq.bidCancel ?? s.sellBattle?.cancelled ?? 0,
     refill: liq.bidRefill ?? s.sellBattle?.refill ?? 0,
+    absorbed: sellAbsorbed,
+    result: s.sellBattle?.result || "NEUTRAL",
+  };
+
+  // Keep meter math
+  const buyMeter = {
+    ...buy,
+    executionRatio:
+      (liq.askExec ?? 0) + (liq.askCancel ?? 0) > 0
+        ? (liq.askExec ?? 0) / Math.max((liq.askExec ?? 0) + (liq.askCancel ?? 0), 1e-9)
+        : s.buyBattle?.executionRatio ?? 0,
+    refillRatio:
+      (liq.askExec ?? 0) > 0
+        ? (liq.askRefill ?? 0) / Math.max(liq.askExec, 1e-9)
+        : s.buyBattle?.refillRatio ?? 0,
+    attackScore:
+      (flow.aggressiveBuyVolume ?? 0) / Math.max(s.askLiquidity || 0, 1e-9),
+  };
+  const sellMeter = {
+    ...sell,
     executionRatio:
       (liq.bidExec ?? 0) + (liq.bidCancel ?? 0) > 0
         ? (liq.bidExec ?? 0) / Math.max((liq.bidExec ?? 0) + (liq.bidCancel ?? 0), 1e-9)
         : s.sellBattle?.executionRatio ?? 0,
-    cancellationRatio:
-      (liq.bidExec ?? 0) + (liq.bidCancel ?? 0) > 0
-        ? (liq.bidCancel ?? 0) / Math.max((liq.bidExec ?? 0) + (liq.bidCancel ?? 0), 1e-9)
-        : s.sellBattle?.cancellationRatio ?? 0,
-    refillRatio: s.sellBattle?.refillRatio ?? 0,
+    refillRatio:
+      (liq.bidExec ?? 0) > 0
+        ? (liq.bidRefill ?? 0) / Math.max(liq.bidExec, 1e-9)
+        : s.sellBattle?.refillRatio ?? 0,
     attackScore:
       (flow.aggressiveSellVolume ?? 0) / Math.max(s.bidLiquidity || 0, 1e-9),
-    result: s.sellBattle?.result || "NEUTRAL",
   };
 
-  const b = battleShare(buy);
-  const se = battleShare(sell);
+  const b = battleShare(buyMeter);
+  const se = battleShare(sellMeter);
   const tf = INTERVALS.find((it) => it.sec === w)?.label || `${w}s`;
-  const abs =
-    s.absorptionByWindow?.[w] ||
-    s.absorptionByWindow?.[String(w)] ||
-    s.absorption ||
-    {};
 
   const buyResult = abs.ask
     ? "ASK ABSORPTION · BUYERS ABSORBED"
@@ -369,6 +405,9 @@ function renderFight(s) {
   const sellResult = abs.bid
     ? "BID ABSORPTION · SELLERS ABSORBED"
     : sell.result || "NEUTRAL";
+
+  const buyAbsorbRange = mergeRanges(liq.askExecRange, liq.askRefillRange);
+  const sellAbsorbRange = mergeRanges(liq.bidExecRange, liq.bidRefillRange);
 
   $("fight").innerHTML = `
     <div class="fight-card buy${abs.ask ? " is-absorbing" : ""}">
@@ -388,9 +427,10 @@ function renderFight(s) {
         ${statLine("Executed", buy.executed, px, liq.askExecRange, "exec")}
         ${statLine("Cancelled", buy.cancelled, px, liq.askCancelRange, "cancel")}
         ${statLine("Refilled", buy.refill, px, liq.askRefillRange, "refill")}
+        ${statLine("Absorbed", buy.absorbed, px, buyAbsorbRange, "absorb", abs.ask ? "ACTIVE" : "")}
       </div>
       <div class="fight-result ${stateClass(buyResult)}">${buyResult}</div>
-      <div class="fight-hint">Absorption = aggression hits asks, book refills, price does not follow (est.).</div>
+      <div class="fight-hint">Absorbed = min(aggression, executed, refilled) — size soaked by asks (est.).</div>
     </div>
     <div class="fight-card sell${abs.bid ? " is-absorbing" : ""}">
       <div class="flow">
@@ -409,9 +449,10 @@ function renderFight(s) {
         ${statLine("Executed", sell.executed, px, liq.bidExecRange, "exec")}
         ${statLine("Cancelled", sell.cancelled, px, liq.bidCancelRange, "cancel")}
         ${statLine("Refilled", sell.refill, px, liq.bidRefillRange, "refill")}
+        ${statLine("Absorbed", sell.absorbed, px, sellAbsorbRange, "absorb", abs.bid ? "ACTIVE" : "")}
       </div>
       <div class="fight-result ${stateClass(sellResult)}">${sellResult}</div>
-      <div class="fight-hint">Absorption = aggression hits bids, book refills, price does not follow (est.).</div>
+      <div class="fight-hint">Absorbed = min(aggression, executed, refilled) — size soaked by bids (est.).</div>
     </div>
   `;
 }

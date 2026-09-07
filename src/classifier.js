@@ -47,7 +47,7 @@ export function isAbsorption({
   );
 }
 
-/** Four-side absorption flags for one fight window. */
+/** Four-side absorption flags + estimated absorbed volume for one fight window. */
 export function absorptionFlags({
   aggressiveBuyVolume,
   aggressiveSellVolume,
@@ -77,11 +77,30 @@ export function absorptionFlags({
     priceChangeTicks,
     config,
   });
+
+  // Absorbed size ≈ aggression that was executed and restocked (est.)
+  const askAbsorbedVolume = Math.min(
+    Math.max(0, aggressiveBuyVolume || 0),
+    Math.max(0, askExec || 0),
+    Math.max(0, askRefill || 0)
+  );
+  const bidAbsorbedVolume = Math.min(
+    Math.max(0, aggressiveSellVolume || 0),
+    Math.max(0, bidExec || 0),
+    Math.max(0, bidRefill || 0)
+  );
+
   return {
     ask: askAbsorb,
     bid: bidAbsorb,
     aggressiveBuy: askAbsorb,
     aggressiveSell: bidAbsorb,
+    /** Aggressive buys absorbed by asks (base qty) */
+    askAbsorbedVolume,
+    /** Aggressive sells absorbed by bids (base qty) */
+    bidAbsorbedVolume,
+    aggressiveBuyAbsorbedVolume: askAbsorbedVolume,
+    aggressiveSellAbsorbedVolume: bidAbsorbedVolume,
   };
 }
 
