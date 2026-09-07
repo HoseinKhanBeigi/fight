@@ -348,6 +348,79 @@ function renderBattleCard(card, px, sideClass, titleAgg, titlePas, tf) {
   `;
 }
 
+/**
+ * Same-side presence: Aggressive buyers vs Passive buyers (bids),
+ * Aggressive sellers vs Passive sellers (asks).
+ */
+function sidePresenceShape(s, w, px) {
+  const flow =
+    s.flowWindows?.[w] ||
+    s.flowWindows?.[60] ||
+    s.flowWindows?.[String(w)] ||
+    {};
+  const aggBuy = Number(flow.aggressiveBuyVolume) || 0;
+  const aggSell = Number(flow.aggressiveSellVolume) || 0;
+  const passBuy = Number(s.bidLiquidity) || 0; // resting bids = passive buyers
+  const passSell = Number(s.askLiquidity) || 0; // resting asks = passive sellers
+
+  const pair = (agg, pass, kind) => {
+    const total = Math.max(agg + pass, 1e-9);
+    const aggPct = Math.round((agg / total) * 100);
+    const passPct = 100 - aggPct;
+    const aggDom = agg >= pass;
+    const label =
+      kind === "buy"
+        ? aggDom
+          ? "AGGRESSIVE BUYERS LEAD"
+          : "PASSIVE BUYERS LEAD"
+        : aggDom
+          ? "AGGRESSIVE SELLERS LEAD"
+          : "PASSIVE SELLERS LEAD";
+
+    const aggSize = 34 + (aggPct / 100) * 28;
+    const passSize = 34 + (passPct / 100) * 28;
+
+    return `
+      <div class="side-pair ${kind}">
+        <div class="side-pair-title">${kind === "buy" ? "Buy side" : "Sell side"}</div>
+        <div class="side-pair-chain">
+          <div class="side-bubble agg" style="width:${aggSize}px;height:${aggSize}px" title="Aggressive ${fmtUsd(notional(agg, px))}">
+            <b>${aggPct}</b>
+            <span>AGG</span>
+          </div>
+          <div class="side-vs">
+            <div class="side-vs-track">
+              <i class="agg" style="width:${aggPct}%"></i>
+              <i class="pass" style="width:${passPct}%"></i>
+            </div>
+            <em>vs</em>
+          </div>
+          <div class="side-bubble pass" style="width:${passSize}px;height:${passSize}px" title="Passive ${fmtUsd(notional(pass, px))}">
+            <b>${passPct}</b>
+            <span>PAS</span>
+          </div>
+        </div>
+        <div class="side-pair-meta">
+          <span class="agg-m">${kind === "buy" ? "Aggressive buyers" : "Aggressive sellers"} <b>${fmtUsd(notional(agg, px))}</b></span>
+          <span class="pass-m">${kind === "buy" ? "Passive buyers (bids)" : "Passive sellers (asks)"} <b>${fmtUsd(notional(pass, px))}</b></span>
+        </div>
+        <div class="side-pair-verdict ${aggDom ? "agg-lead" : "pass-lead"}">${label}</div>
+      </div>`;
+  };
+
+  return `
+    <div class="side-presence" aria-label="Aggressive vs passive same-side presence">
+      <div class="side-presence-head">
+        <span>Same-side presence</span>
+        <small>Aggressive tape vs resting book on each side</small>
+      </div>
+      <div class="side-presence-grid">
+        ${pair(aggBuy, passBuy, "buy")}
+        ${pair(aggSell, passSell, "sell")}
+      </div>
+    </div>`;
+}
+
 function renderFight(s) {
   const px = s.price ?? s.bestBid ?? s.bestAsk;
   const w = ui.interval;
@@ -366,6 +439,7 @@ function renderFight(s) {
   }
 
   $("fight").innerHTML = `
+    ${sidePresenceShape(s, w, px)}
     ${renderBattleCard(buy, px, "buy", "Aggressive buyers", "Passive asks", tf)}
     ${renderBattleCard(sell, px, "sell", "Aggressive sellers", "Passive bids", tf)}
   `;
