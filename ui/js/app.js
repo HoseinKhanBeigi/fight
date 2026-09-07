@@ -83,26 +83,6 @@ function usdLine(qty, price) {
   return `<b title="${fmt(qty)} base @ ${fmtPx(price)}">${fmtUsd(n)}</b><small>${fmt(qty)}</small>`;
 }
 
-/** Price band where a metric was observed, e.g. 76900 – 80500 */
-function fmtRange(range) {
-  if (!range || range.lo == null || range.hi == null) return "";
-  const lo = Number(range.lo);
-  const hi = Number(range.hi);
-  if (!Number.isFinite(lo) || !Number.isFinite(hi)) return "";
-  if (Math.abs(hi - lo) < 1e-12) return fmtPx(lo);
-  return `${fmtPx(lo)} – ${fmtPx(hi)}`;
-}
-
-function statLine(label, qty, price, range, cls = "", absorbTag = "") {
-  const band = fmtRange(range);
-  const tag = absorbTag
-    ? `<em class="absorb-tag" title="Absorption estimate">${absorbTag}</em>`
-    : "";
-  return `<span class="${cls}${absorbTag ? " absorbing" : ""}">${label} ${usdLine(qty, price)}${
-    tag
-  }${band ? `<em class="px-band" title="Price window for this metric">${band}</em>` : ""}</span>`;
-}
-
 function fmtPx(n) {
   if (n == null) return "—";
   const x = Number(n);
@@ -125,13 +105,24 @@ function fmtPx(n) {
 }
 
 function stateClass(state = "") {
-  const s = String(state).toUpperCase();
-  if (s.includes("ABSORB")) return "state-absorb";
-  if (s.includes("TRUE ASK") || s.includes("ASK PULL") || s.includes("BUYERS") || s.includes("UPSIDE"))
+  const s = String(state).toUpperCase().replace(/_/g, " ");
+  if (s.includes("ABSORB") || s.includes("DEFENDING")) return "state-absorb";
+  if (
+    s.includes("BUYERS WINNING") ||
+    s.includes("UPSIDE") ||
+    s.includes("ASK LIQUIDITY WITHDRAWING") ||
+    s.includes("ASK CANCELLATION")
+  )
     return "state-buy";
-  if (s.includes("TRUE BID") || s.includes("BID PULL") || s.includes("SELLERS") || s.includes("DOWNSIDE"))
+  if (
+    s.includes("SELLERS WINNING") ||
+    s.includes("DOWNSIDE") ||
+    s.includes("BID LIQUIDITY WITHDRAWING") ||
+    s.includes("BID CANCELLATION")
+  )
     return "state-sell";
-  if (s.includes("WALL")) return "state-wall";
+  if (s.includes("WALL") || s.includes("VACUUM")) return "state-wall";
+  if (s.includes("LOW CONFIDENCE") || s.includes("NO MEANINGFUL")) return "state-neutral";
   return "state-neutral";
 }
 
@@ -140,6 +131,159 @@ function connClass(c) {
   if (x === "LIVE") return "live";
   if (x === "DISCONNECTED") return "disconnected";
   return "reconnecting";
+}
+
+function fmtScore(n) {
+  if (n == null || Number.isNaN(Number(n))) return "—";
+  return `${Number(n)}/100`;
+}
+
+function fmtPctile(n) {
+  if (n == null || Number.isNaN(Number(n))) return "—";
+  const p = Number(n);
+  const suf = p % 10 === 1 && p !== 11 ? "st" : p % 10 === 2 && p !== 12 ? "nd" : p % 10 === 3 && p !== 13 ? "rd" : "th";
+  return `${p}${suf}`;
+}
+
+function fmtBps(n) {
+  if (n == null || Number.isNaN(Number(n))) return "—";
+  const x = Number(n);
+  return `${x >= 0 ? "+" : ""}${x.toFixed(1)} bps`;
+}
+
+function moneyOrNoData(qty, price) {
+  if (qty == null || Number.isNaN(Number(qty))) return `<b class="nodata">NO DATA</b>`;
+  return usdLine(qty, price);
+}
+
+function row(label, valueHtml) {
+  return `<div class="battle-row"><span class="k">${label}</span><span class="v">${valueHtml}</span></div>`;
+}
+
+function section(title, body) {
+  return `<div class="battle-sec"><div class="battle-sec-title">${title}</div>${body}</div>`;
+}
+
+function prettyState(state = "") {
+  return String(state || "NEUTRAL").replace(/_/g, " ");
+}
+
+function renderBattleCard(card, px, sideClass, titleAgg, titlePas, tf) {
+  if (!card) {
+    return `<div class="fight-card ${sideClass}"><div class="flow">${titleAgg}</div><div class="fight-hint">Waiting for battle metrics…</div></div>`;
+  }
+  const a = card.attack || {};
+  const d = card.defense || {};
+  const r = card.response || {};
+  const L = card.labels || {};
+  const absorbing = (r.absorptionScore || 0) >= 65;
+
+  const attackBody = [
+    row(L.aggressive || "Aggressive Volume", moneyOrNoData(a.aggressiveVolume, px)),
+    row("Power", `<b>${fmtScore(a.power)}</b>`),
+    row("Percentile", `<b>${fmtPctile(a.percentile)}</b><small>${a.percentileBand || ""}</small>`),
+    row(
+      "Velocity",
+      a.velocity == null
+        ? `<b class="nodata">NO DATA</b>`
+        : `<b>${fmtUsd(notional(a.velocity, px))}/s</b>`
+    ),
+  ].join("");
+
+  const netLabel =
+    (d.netWithdrawal || 0) >= (d.netAddition || 0) ? "Net Withdrawal" : "Net Addition";
+  const netVal =
+    (d.netWithdrawal || 0) >= (d.netAddition || 0) ? d.netWithdrawal : d.netAddition;
+
+  const defenseBody = [
+    row(L.liquidity || "Liquidity", moneyOrNoData(d.currentLiquidity, px)),
+    row(L.consumed || "Consumed", moneyOrNoData(d.consumed, px)),
+    row(L.cancelled || "Cancelled", moneyOrNoData(d.cancelled, px)),
+    row(L.replenished || "Replenished", moneyOrNoData(d.replenished, px)),
+    row(netLabel, moneyOrNoData(netVal, px)),
+    row("Survival", `<b>${fmtScore(d.survival)}</b>`),
+    row("Withdrawal", `<b>${fmtScore(d.withdrawal)}</b>`),
+    row(
+      "Cancel context",
+      `<b>${fmtPctile(d.cancelPercentile)}</b><small>${d.cancelBand || ""}</small>`
+    ),
+    row("Churn", `<b>${prettyState(d.churnLabel)}</b>`),
+  ].join("");
+
+  const responseBody = [
+    row(L.efficiency || "Price Efficiency", `<b>${fmtScore(r.efficiency)}</b>`),
+    row(L.absorption || "Absorption", `<b class="absorb">${fmtScore(r.absorptionScore)}</b>`),
+    row(
+      "Estimated Absorbed Flow",
+      `<b class="absorb">${fmtUsd(notional(r.estimatedAbsorbedFlow, px))}</b><small>estimate</small>`
+    ),
+    row("Price Move", `<b>${fmtBps(r.priceMoveBps)}</b>`),
+  ].join("");
+
+  const evidence = (card.evidence || [])
+    .map((e) => `<li><span>${e.k}</span><b>${e.v}</b></li>`)
+    .join("");
+
+  return `
+    <div class="fight-card ${sideClass}${absorbing ? " is-absorbing" : ""}">
+      <div class="flow">
+        <span class="agg">${titleAgg}</span>
+        <span class="arrow">→</span>
+        <span class="pas">${titlePas}</span>
+        <span class="tf">${tf} · USD</span>
+      </div>
+      ${section("Attack", attackBody)}
+      ${section("Defense", defenseBody)}
+      ${section("Response", responseBody)}
+      <div class="fight-result ${stateClass(card.state)}">${prettyState(card.state)}</div>
+      <div class="fight-why">${card.why || ""}</div>
+      ${
+        evidence
+          ? `<details class="fight-evidence"><summary>Why / evidence</summary><ul>${evidence}</ul></details>`
+          : ""
+      }
+    </div>
+  `;
+}
+
+function renderFight(s) {
+  const px = s.price ?? s.bestBid ?? s.bestAsk;
+  const w = ui.interval;
+  const tf = INTERVALS.find((it) => it.sec === w)?.label || `${w}s`;
+  const pack = s.battlesByWindow?.[w] || s.battlesByWindow?.[String(w)] || null;
+  const buy = pack?.buy;
+  const sell = pack?.sell;
+
+  // Prefer battle-engine cards; fallback message if server not yet upgraded
+  if (!buy && !sell) {
+    $("fight").innerHTML = `
+      <div class="fight-card buy"><div class="fight-hint">Waiting for battle engine… restart the server if this persists.</div></div>
+      <div class="fight-card sell"><div class="fight-hint">Waiting for battle engine…</div></div>
+    `;
+    return;
+  }
+
+  $("fight").innerHTML = `
+    ${renderBattleCard(buy, px, "buy", "Aggressive buyers", "Passive asks", tf)}
+    ${renderBattleCard(sell, px, "sell", "Aggressive sellers", "Passive bids", tf)}
+  `;
+
+  // Mirror primary interaction state into header when available
+  const lead = buy?.state || sell?.state;
+  if (lead && $("h-state") && !ui.switching) {
+    $("h-state").textContent = prettyState(lead);
+    $("h-state").className = `state ${stateClass(lead)}`;
+  }
+}
+
+function renderFooter() {
+  $("footer").innerHTML = `
+    <div class="note" style="grid-column:1/-1">
+      Attack = aggressive trade flow · Defense = passive book behavior · Response = price efficiency + absorption score.
+      Consumed ≠ Aggressive (aggressive is already executed tape; consumed is resting liquidity removed by trades).
+      Surges use rolling percentiles, not raw dollar cutoffs.
+    </div>
+  `;
 }
 
 function switchSymbol(next) {
@@ -290,179 +434,6 @@ function renderHeader(s) {
   conn.textContent = c;
   conn.className = `conn ${connClass(c)}`;
   conn.title = s?.status || "";
-}
-
-function battleShare(battle) {
-  const attack = Math.min(Number(battle?.attackScore) || 0, 3) / 3;
-  const exec = Math.max(0, Math.min(1, Number(battle?.executionRatio) || 0));
-  const refill = Math.max(0, Math.min(1, Number(battle?.refillRatio) || 0));
-  const force = Math.max(0.05, Math.min(0.95, 0.5 * attack + 0.35 * exec + 0.15 * (1 - refill)));
-  return { force, resist: 1 - force };
-}
-
-function mergeRanges(a, b) {
-  if (!a && !b) return null;
-  if (!a) return b;
-  if (!b) return a;
-  return {
-    lo: Math.min(a.lo, b.lo),
-    hi: Math.max(a.hi, b.hi),
-  };
-}
-
-function renderFight(s) {
-  const px = s.price ?? s.bestBid ?? s.bestAsk;
-  const w = ui.interval;
-  const flow =
-    s.flowWindows?.[w] ||
-    s.flowWindows?.[60] ||
-    s.flowWindows?.[300] ||
-    {};
-  const liq =
-    s.liqWindows?.[w] ||
-    s.liqWindows?.[60] ||
-    s.liqWindows?.[300] ||
-    {};
-
-  const abs =
-    s.absorptionByWindow?.[w] ||
-    s.absorptionByWindow?.[String(w)] ||
-    s.absorption ||
-    {};
-
-  const buyAbsorbed =
-    abs.askAbsorbedVolume ??
-    abs.aggressiveBuyAbsorbedVolume ??
-    Math.min(
-      flow.aggressiveBuyVolume || 0,
-      liq.askExec || 0,
-      liq.askRefill || 0
-    );
-  const sellAbsorbed =
-    abs.bidAbsorbedVolume ??
-    abs.aggressiveSellAbsorbedVolume ??
-    Math.min(
-      flow.aggressiveSellVolume || 0,
-      liq.bidExec || 0,
-      liq.bidRefill || 0
-    );
-
-  const buy = {
-    aggressiveVolume: flow.aggressiveBuyVolume ?? s.buyBattle?.aggressiveVolume ?? 0,
-    passiveLiquidity: s.askLiquidity ?? s.buyBattle?.passiveLiquidity ?? 0,
-    executed: liq.askExec ?? s.buyBattle?.executed ?? 0,
-    cancelled: liq.askCancel ?? s.buyBattle?.cancelled ?? 0,
-    refill: liq.askRefill ?? s.buyBattle?.refill ?? 0,
-    absorbed: buyAbsorbed,
-    result: s.buyBattle?.result || "NEUTRAL",
-  };
-
-  const sell = {
-    aggressiveVolume: flow.aggressiveSellVolume ?? s.sellBattle?.aggressiveVolume ?? 0,
-    passiveLiquidity: s.bidLiquidity ?? s.sellBattle?.passiveLiquidity ?? 0,
-    executed: liq.bidExec ?? s.sellBattle?.executed ?? 0,
-    cancelled: liq.bidCancel ?? s.sellBattle?.cancelled ?? 0,
-    refill: liq.bidRefill ?? s.sellBattle?.refill ?? 0,
-    absorbed: sellAbsorbed,
-    result: s.sellBattle?.result || "NEUTRAL",
-  };
-
-  // Keep meter math
-  const buyMeter = {
-    ...buy,
-    executionRatio:
-      (liq.askExec ?? 0) + (liq.askCancel ?? 0) > 0
-        ? (liq.askExec ?? 0) / Math.max((liq.askExec ?? 0) + (liq.askCancel ?? 0), 1e-9)
-        : s.buyBattle?.executionRatio ?? 0,
-    refillRatio:
-      (liq.askExec ?? 0) > 0
-        ? (liq.askRefill ?? 0) / Math.max(liq.askExec, 1e-9)
-        : s.buyBattle?.refillRatio ?? 0,
-    attackScore:
-      (flow.aggressiveBuyVolume ?? 0) / Math.max(s.askLiquidity || 0, 1e-9),
-  };
-  const sellMeter = {
-    ...sell,
-    executionRatio:
-      (liq.bidExec ?? 0) + (liq.bidCancel ?? 0) > 0
-        ? (liq.bidExec ?? 0) / Math.max((liq.bidExec ?? 0) + (liq.bidCancel ?? 0), 1e-9)
-        : s.sellBattle?.executionRatio ?? 0,
-    refillRatio:
-      (liq.bidExec ?? 0) > 0
-        ? (liq.bidRefill ?? 0) / Math.max(liq.bidExec, 1e-9)
-        : s.sellBattle?.refillRatio ?? 0,
-    attackScore:
-      (flow.aggressiveSellVolume ?? 0) / Math.max(s.bidLiquidity || 0, 1e-9),
-  };
-
-  const b = battleShare(buyMeter);
-  const se = battleShare(sellMeter);
-  const tf = INTERVALS.find((it) => it.sec === w)?.label || `${w}s`;
-
-  const buyResult = abs.ask
-    ? "ASK ABSORPTION · BUYERS ABSORBED"
-    : buy.result || "NEUTRAL";
-  const sellResult = abs.bid
-    ? "BID ABSORPTION · SELLERS ABSORBED"
-    : sell.result || "NEUTRAL";
-
-  const buyAbsorbRange = mergeRanges(liq.askExecRange, liq.askRefillRange);
-  const sellAbsorbRange = mergeRanges(liq.bidExecRange, liq.bidRefillRange);
-
-  $("fight").innerHTML = `
-    <div class="fight-card buy${abs.ask ? " is-absorbing" : ""}">
-      <div class="flow">
-        <span class="agg">Aggressive buyers</span>
-        <span class="arrow">→</span>
-        <span class="pas">Passive asks</span>
-        <span class="tf">${tf} · USD</span>
-      </div>
-      <div class="fight-meter" title="Force (aggression) vs Resistance (resting asks)">
-        <div class="force" style="width:${(b.force * 100).toFixed(0)}%"></div>
-        <div class="resist" style="width:${(b.resist * 100).toFixed(0)}%"></div>
-      </div>
-      <div class="fight-stats">
-        ${statLine("Aggressive", buy.aggressiveVolume, px, null, "", abs.aggressiveBuy ? "ABSORBED" : "")}
-        ${statLine("Ask liq", buy.passiveLiquidity, px, s.askLiquidityRange, "pas", abs.ask ? "ABSORBING" : "")}
-        ${statLine("Executed", buy.executed, px, liq.askExecRange, "exec")}
-        ${statLine("Cancelled", buy.cancelled, px, liq.askCancelRange, "cancel")}
-        ${statLine("Refilled", buy.refill, px, liq.askRefillRange, "refill")}
-        ${statLine("Absorbed", buy.absorbed, px, buyAbsorbRange, "absorb", abs.ask ? "ACTIVE" : "")}
-      </div>
-      <div class="fight-result ${stateClass(buyResult)}">${buyResult}</div>
-      <div class="fight-hint">Absorbed = min(aggression, executed, refilled) — size soaked by asks (est.).</div>
-    </div>
-    <div class="fight-card sell${abs.bid ? " is-absorbing" : ""}">
-      <div class="flow">
-        <span class="agg">Aggressive sellers</span>
-        <span class="arrow">→</span>
-        <span class="pas">Passive bids</span>
-        <span class="tf">${tf} · USD</span>
-      </div>
-      <div class="fight-meter" title="Force (aggression) vs Resistance (resting bids)">
-        <div class="force" style="width:${(se.force * 100).toFixed(0)}%"></div>
-        <div class="resist" style="width:${(se.resist * 100).toFixed(0)}%"></div>
-      </div>
-      <div class="fight-stats">
-        ${statLine("Aggressive", sell.aggressiveVolume, px, null, "", abs.aggressiveSell ? "ABSORBED" : "")}
-        ${statLine("Bid liq", sell.passiveLiquidity, px, s.bidLiquidityRange, "pas", abs.bid ? "ABSORBING" : "")}
-        ${statLine("Executed", sell.executed, px, liq.bidExecRange, "exec")}
-        ${statLine("Cancelled", sell.cancelled, px, liq.bidCancelRange, "cancel")}
-        ${statLine("Refilled", sell.refill, px, liq.bidRefillRange, "refill")}
-        ${statLine("Absorbed", sell.absorbed, px, sellAbsorbRange, "absorb", abs.bid ? "ACTIVE" : "")}
-      </div>
-      <div class="fight-result ${stateClass(sellResult)}">${sellResult}</div>
-      <div class="fight-hint">Absorbed = min(aggression, executed, refilled) — size soaked by bids (est.).</div>
-    </div>
-  `;
-}
-
-function renderFooter() {
-  $("footer").innerHTML = `
-    <div class="note" style="grid-column:1/-1">
-      All $ amounts are USDT (size × price). Timeframe buttons change the fight window.
-    </div>
-  `;
 }
 
 function renderAll(s) {

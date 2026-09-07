@@ -371,6 +371,110 @@ select {
   text-transform: uppercase;
 }
 
+.battle-sec {
+  border-top: 1px solid var(--border-1);
+  padding-top: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.battle-sec-title {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-3);
+  margin-bottom: 2px;
+}
+
+.battle-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 10px;
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 11px;
+  color: var(--text-2);
+}
+
+.battle-row .k {
+  color: var(--text-3);
+}
+
+.battle-row .v {
+  text-align: right;
+  display: inline-flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 1px;
+}
+
+.battle-row .v b {
+  color: var(--text-0);
+  font-weight: 600;
+  font-size: 12px;
+}
+
+.battle-row .v small {
+  color: var(--text-3);
+  font-size: 9px;
+}
+
+.battle-row .v b.absorb {
+  color: var(--warn);
+}
+
+.battle-row .v b.nodata {
+  color: var(--text-3);
+  font-size: 11px;
+  letter-spacing: 0.04em;
+}
+
+.fight-why {
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--text-2);
+}
+
+.fight-evidence {
+  font-size: 11px;
+  color: var(--text-2);
+}
+
+.fight-evidence summary {
+  cursor: pointer;
+  color: var(--text-3);
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.fight-evidence ul {
+  margin: 6px 0 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.fight-evidence li {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  font-family: var(--mono);
+}
+
+.fight-evidence li span {
+  color: var(--text-3);
+}
+
+.fight-card.is-absorbing {
+  box-shadow: inset 3px 0 0 var(--warn);
+}
+
 .fight-stats span {
   display: inline-flex;
   flex-direction: column;

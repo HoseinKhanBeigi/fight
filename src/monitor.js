@@ -7,6 +7,7 @@ import { AggressiveFlowTracker, TradePrint } from "./trades.js";
 import { LiquidityEngine } from "./liquidity.js";
 import { WallTracker } from "./walls.js";
 import { MarketClassifier, absorptionFlags } from "./classifier.js";
+import { MarketBattleEngine } from "./battle.js";
 import { FootprintAggregator } from "./footprint.js";
 import { fetchAggTradesHistory, lookbackForInterval } from "./history.js";
 
@@ -21,6 +22,7 @@ export class OrderFlowMonitor {
     this.liquidity = new LiquidityEngine(this.config);
     this.walls = new WallTracker(this.config);
     this.classifier = new MarketClassifier(this.config);
+    this.battle = new MarketBattleEngine(this.config);
     this.footprint = new FootprintAggregator({
       intervalSec: this.config.footprintIntervalSec ?? 5,
       maxColumns: this.config.footprintColumns ?? 48,
@@ -54,6 +56,7 @@ export class OrderFlowMonitor {
         this.ready = false;
         this.book.clear();
         this.liquidity.clear();
+        this.battle.clear();
       },
       onStatus: (msg) => {
         // Don't clobber an active backfill status line
@@ -254,6 +257,7 @@ export class OrderFlowMonitor {
       this.ready = false;
       this.book.clear();
       this.liquidity.clear();
+      this.battle.clear();
       this.feed.queueSync();
     }
   }
@@ -306,6 +310,20 @@ export class OrderFlowMonitor {
         ];
       })
     );
+
+    const priceNow = this.flow.lastPrice ?? this.book.midPrice();
+    const battlesByWindow = this.battle.buildAll({
+      windows: this.config.windows,
+      flowWindows,
+      liqWindows,
+      askLiquidity: askLiq,
+      bidLiquidity: bidLiq,
+      priceNow,
+      priceHistory: this.flow.priceHistory,
+      now,
+      bookReady: this.ready && this.feed.bookReady,
+      tradesReady: this.flow.trades.length > 0 || this.history.status === "done",
+    });
 
     const bb = this.book.bestBid();
     const ba = this.book.bestAsk();
@@ -422,6 +440,7 @@ export class OrderFlowMonitor {
       sellBattle: this.classifier.sellBattle,
       absorption: this.classifier.absorption,
       absorptionByWindow,
+      battlesByWindow,
       state: this.classifier.currentState,
       pendingState: this.classifier.pendingState,
       largestBidWall: serializeWall(this.walls.largestBidWall),
