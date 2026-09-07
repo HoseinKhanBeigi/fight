@@ -371,6 +371,8 @@ export class OrderFlowMonitor {
       liqWindows,
       bidLiquidity: this.book.totalNearLiquidity("bid", 20),
       askLiquidity: this.book.totalNearLiquidity("ask", 20),
+      bidLiquidityRange: this.book.nearPriceRange("bid", 20),
+      askLiquidityRange: this.book.nearPriceRange("ask", 20),
       buyBattle: this.classifier.buyBattle,
       sellBattle: this.classifier.sellBattle,
       state: this.classifier.currentState,

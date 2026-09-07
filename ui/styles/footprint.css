@@ -384,6 +384,13 @@ select {
   font-weight: 400;
 }
 
+.fight-stats .px-band {
+  font-style: normal;
+  color: var(--text-3);
+  font-size: 9px;
+  letter-spacing: 0.02em;
+}
+
 .fight-stats b {
   color: var(--text-0);
   font-weight: 600;

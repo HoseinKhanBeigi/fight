@@ -83,6 +83,23 @@ function usdLine(qty, price) {
   return `<b title="${fmt(qty)} base @ ${fmtPx(price)}">${fmtUsd(n)}</b><small>${fmt(qty)}</small>`;
 }
 
+/** Price band where a metric was observed, e.g. 76900 – 80500 */
+function fmtRange(range) {
+  if (!range || range.lo == null || range.hi == null) return "";
+  const lo = Number(range.lo);
+  const hi = Number(range.hi);
+  if (!Number.isFinite(lo) || !Number.isFinite(hi)) return "";
+  if (Math.abs(hi - lo) < 1e-12) return fmtPx(lo);
+  return `${fmtPx(lo)} – ${fmtPx(hi)}`;
+}
+
+function statLine(label, qty, price, range, cls = "") {
+  const band = fmtRange(range);
+  return `<span class="${cls}">${label} ${usdLine(qty, price)}${
+    band ? `<em class="px-band" title="Price window for this metric">${band}</em>` : ""
+  }</span>`;
+}
+
 function fmtPx(n) {
   if (n == null) return "—";
   const x = Number(n);
@@ -351,14 +368,14 @@ function renderFight(s) {
         <div class="resist" style="width:${(b.resist * 100).toFixed(0)}%"></div>
       </div>
       <div class="fight-stats">
-        <span>Aggressive ${usdLine(buy.aggressiveVolume, px)}</span>
-        <span class="pas">Ask liq ${usdLine(buy.passiveLiquidity, px)}</span>
-        <span class="exec">Executed ${usdLine(buy.executed, px)}</span>
-        <span class="cancel">Cancelled ${usdLine(buy.cancelled, px)}</span>
-        <span class="refill">Refilled ${usdLine(buy.refill, px)}</span>
+        ${statLine("Aggressive", buy.aggressiveVolume, px, null)}
+        ${statLine("Ask liq", buy.passiveLiquidity, px, s.askLiquidityRange, "pas")}
+        ${statLine("Executed", buy.executed, px, liq.askExecRange, "exec")}
+        ${statLine("Cancelled", buy.cancelled, px, liq.askCancelRange, "cancel")}
+        ${statLine("Refilled", buy.refill, px, liq.askRefillRange, "refill")}
       </div>
       <div class="fight-result ${stateClass(buy.result)}">${buy.result || "NEUTRAL"}</div>
-      <div class="fight-hint">Big $ = USDT notional (qty × price). Small number = base coins. Green = attack · Blue = ask resistance.</div>
+      <div class="fight-hint">Big $ = USDT notional. Price band = levels where that activity happened (est.).</div>
     </div>
     <div class="fight-card sell">
       <div class="flow">
@@ -372,14 +389,14 @@ function renderFight(s) {
         <div class="resist" style="width:${(se.resist * 100).toFixed(0)}%"></div>
       </div>
       <div class="fight-stats">
-        <span>Aggressive ${usdLine(sell.aggressiveVolume, px)}</span>
-        <span class="pas">Bid liq ${usdLine(sell.passiveLiquidity, px)}</span>
-        <span class="exec">Executed ${usdLine(sell.executed, px)}</span>
-        <span class="cancel">Cancelled ${usdLine(sell.cancelled, px)}</span>
-        <span class="refill">Refilled ${usdLine(sell.refill, px)}</span>
+        ${statLine("Aggressive", sell.aggressiveVolume, px, null)}
+        ${statLine("Bid liq", sell.passiveLiquidity, px, s.bidLiquidityRange, "pas")}
+        ${statLine("Executed", sell.executed, px, liq.bidExecRange, "exec")}
+        ${statLine("Cancelled", sell.cancelled, px, liq.bidCancelRange, "cancel")}
+        ${statLine("Refilled", sell.refill, px, liq.bidRefillRange, "refill")}
       </div>
       <div class="fight-result ${stateClass(sell.result)}">${sell.result || "NEUTRAL"}</div>
-      <div class="fight-hint">Big $ = USDT notional (qty × price). Small number = base coins. Red = attack · Blue = bid resistance.</div>
+      <div class="fight-hint">Big $ = USDT notional. Price band = levels where that activity happened (est.).</div>
     </div>
   `;
 }

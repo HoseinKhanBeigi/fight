@@ -156,6 +156,19 @@ export class LocalOrderBook {
     return this.nearLevelsList(side, n).reduce((s, l) => s + l.quantity, 0);
   }
 
+  /** Min/max price of the near book ladder used for liquidity totals. */
+  nearPriceRange(side, n = this.nearLevels) {
+    const levels = this.nearLevelsList(side, n);
+    if (!levels.length) return null;
+    let lo = levels[0].price;
+    let hi = levels[0].price;
+    for (const lvl of levels) {
+      if (lvl.price < lo) lo = lvl.price;
+      if (lvl.price > hi) hi = lvl.price;
+    }
+    return { lo, hi };
+  }
+
   levelSizes(side, n = this.nearLevels) {
     return this.nearLevelsList(side, n).map((l) => l.quantity);
   }

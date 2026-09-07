@@ -5,11 +5,45 @@
 
 import { LiquidityEvent } from "./book.js";
 
+const RANGE_KEYS = [
+  "bidCancel",
+  "askCancel",
+  "bidRefill",
+  "askRefill",
+  "bidExec",
+  "askExec",
+  "bidStack",
+  "askStack",
+];
+
+function emptyRanges() {
+  /** @type {Record<string, {lo:number|null, hi:number|null}>} */
+  const ranges = {};
+  for (const k of RANGE_KEYS) ranges[k] = { lo: null, hi: null };
+  return ranges;
+}
+
+function touchRange(range, price, volume, epsilon) {
+  if (!(volume > epsilon) || !Number.isFinite(price)) return;
+  if (range.lo == null || price < range.lo) range.lo = price;
+  if (range.hi == null || price > range.hi) range.hi = price;
+}
+
+function mergeRange(dst, src) {
+  if (!src || (src.lo == null && src.hi == null)) return;
+  if (src.lo != null && (dst.lo == null || src.lo < dst.lo)) dst.lo = src.lo;
+  if (src.hi != null && (dst.hi == null || src.hi > dst.hi)) dst.hi = src.hi;
+}
+
+function rangePayload(range) {
+  if (!range || range.lo == null || range.hi == null) return null;
+  return { lo: range.lo, hi: range.hi };
+}
+
 export class RollingSideMetric {
   constructor(windows) {
     this.windows = [...windows];
     this.maxWindow = Math.max(...windows, 60);
-    /** @type {{ts:number, bidCancel:number, askCancel:number, bidStack:number, askStack:number, bidRefill:number, askRefill:number, bidExec:number, askExec:number, bidRemoved:number, askRemoved:number}[]} */
     this.events = [];
   }
 
@@ -38,6 +72,7 @@ export class RollingSideMetric {
         askExec: 0,
         bidRemoved: 0,
         askRemoved: 0,
+        ranges: emptyRanges(),
       };
     }
     for (let i = this.events.length - 1; i >= 0; i--) {
@@ -57,6 +92,9 @@ export class RollingSideMetric {
           o.askExec += e.askExec;
           o.bidRemoved += e.bidRemoved;
           o.askRemoved += e.askRemoved;
+          if (e.ranges) {
+            for (const k of RANGE_KEYS) mergeRange(o.ranges[k], e.ranges[k]);
+          }
         }
       }
     }
@@ -90,6 +128,7 @@ export class LiquidityEngine {
       askExec: 0,
       bidRemoved: 0,
       askRemoved: 0,
+      ranges: emptyRanges(),
     };
   }
 
@@ -163,6 +202,11 @@ export class LiquidityEngine {
     this._acc[cancelKey] += estimatedCancel;
     this._acc[stackKey] += estimatedStack;
     this._acc[refillKey] += estimatedRefill;
+
+    touchRange(this._acc.ranges[execKey], price, executed, this.epsilon);
+    touchRange(this._acc.ranges[cancelKey], price, estimatedCancel, this.epsilon);
+    touchRange(this._acc.ranges[refillKey], price, estimatedRefill, this.epsilon);
+    touchRange(this._acc.ranges[stackKey], price, estimatedStack, this.epsilon);
 
     if (eventType === "UNCHANGED") return null;
 
@@ -368,6 +412,7 @@ export class LiquidityEngine {
       const askExecRatio = s.askExec / Math.max(s.askRemoved, epsilon);
       const cancelImbalance =
         (s.askCancel - s.bidCancel) / Math.max(s.askCancel + s.bidCancel, epsilon);
+      const ranges = s.ranges || emptyRanges();
       out[w] = {
         ...s,
         bidCancelRatio,
@@ -377,8 +422,14 @@ export class LiquidityEngine {
         cancelImbalance,
         bidPassivePressure: s.bidStack + s.bidRefill - s.bidCancel,
         askPassivePressure: s.askStack + s.askRefill - s.askCancel,
-        bidCancelRate: s.bidCancel, // volume/sec approx via window later
+        bidCancelRate: s.bidCancel,
         askCancelRate: s.askCancel,
+        bidCancelRange: rangePayload(ranges.bidCancel),
+        askCancelRange: rangePayload(ranges.askCancel),
+        bidRefillRange: rangePayload(ranges.bidRefill),
+        askRefillRange: rangePayload(ranges.askRefill),
+        bidExecRange: rangePayload(ranges.bidExec),
+        askExecRange: rangePayload(ranges.askExec),
       };
     }
     return out;
