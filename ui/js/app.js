@@ -168,6 +168,107 @@ function prettyState(state = "") {
   return String(state || "NEUTRAL").replace(/_/g, " ");
 }
 
+function clampScore(n, fallback = 0) {
+  const x = Number(n);
+  if (!Number.isFinite(x)) return fallback;
+  return Math.max(0, Math.min(100, x));
+}
+
+/**
+ * Visual: Attack → Defense → Response.
+ * Node size = stage strength; arrow weight = pressure transfer;
+ * verdict says which stage currently dominates the outcome.
+ */
+function flowShape(card, sideClass) {
+  const a = card.attack || {};
+  const d = card.defense || {};
+  const r = card.response || {};
+  const isBuy = sideClass === "buy";
+
+  const attack = clampScore(a.power, 50);
+  const defense = clampScore(
+    0.6 * (d.survival ?? 50) + 0.4 * (100 - (d.withdrawal ?? 50)),
+    50
+  );
+  const responsePush = clampScore(r.efficiency, 50); // price follows attack
+  const responseHold = clampScore(r.absorptionScore, 50); // defense soaks attack
+  const response = Math.max(responsePush, responseHold);
+
+  // Pressure transfer along the chain
+  const hit = (attack / 100) * (1 - defense / 100); // attack getting through defense
+  const soak = (attack / 100) * (defense / 100); // attack meeting resistance
+  const toPrice = hit * (responsePush / 100);
+  const absorbed = soak * (responseHold / 100);
+
+  let verdict = "BALANCED FLOW";
+  let verdictClass = "flow-balanced";
+  if (responseHold >= 60 && defense >= 55 && attack >= 45) {
+    verdict = isBuy ? "DEFENSE HOLDS · SELLERS ABSORB" : "DEFENSE HOLDS · BUYERS ABSORB";
+    verdictClass = "flow-defense";
+  } else if (responsePush >= 55 && attack >= 55 && defense <= 50) {
+    verdict = isBuy ? "ATTACK BREAKS THROUGH · BUYERS" : "ATTACK BREAKS THROUGH · SELLERS";
+    verdictClass = "flow-attack";
+  } else if (defense >= 65 && attack < 50) {
+    verdict = "DEFENSE DOMINANT";
+    verdictClass = "flow-defense";
+  } else if (attack >= 65 && defense < 45) {
+    verdict = "ATTACK DOMINANT";
+    verdictClass = "flow-attack";
+  } else if (responsePush >= 60) {
+    verdict = "RESPONSE FAVORS ATTACK";
+    verdictClass = "flow-attack";
+  } else if (responseHold >= 60) {
+    verdict = "RESPONSE FAVORS DEFENSE";
+    verdictClass = "flow-defense";
+  }
+
+  const stages = [
+    { key: "attack", label: "ATTACK", score: attack },
+    { key: "defense", label: "DEFENSE", score: defense },
+    { key: "response", label: "RESPONSE", score: response },
+  ];
+  const strongest = stages.reduce((b, x) => (x.score > b.score ? x : b), stages[0]);
+
+  const node = (key, label, score) => {
+    const size = 28 + (score / 100) * 22;
+    const active = strongest.key === key ? " active" : "";
+    return `
+      <div class="flow-node ${key}${active}" style="--s:${score};width:${size}px;height:${size}px" title="${label} ${score}/100">
+        <span class="flow-node-score">${score}</span>
+        <span class="flow-node-label">${label}</span>
+      </div>`;
+  };
+
+  const arrow = (weight, kind) => {
+    const w = Math.max(2, Math.round(2 + weight * 10));
+    return `<div class="flow-arrow ${kind}" style="--w:${w}px" title="${kind} ${(weight * 100).toFixed(0)}%">
+      <span class="flow-arrow-line"></span>
+      <span class="flow-arrow-head"></span>
+    </div>`;
+  };
+
+  return `
+    <div class="flow-shape" aria-label="Attack defense response flow">
+      <div class="flow-chain">
+        ${node("attack", "ATTACK", attack)}
+        ${arrow(Math.max(hit, soak), hit >= soak ? "pierce" : "press")}
+        ${node("defense", "DEFENSE", defense)}
+        ${arrow(Math.max(toPrice, absorbed), toPrice >= absorbed ? "follow" : "soak")}
+        ${node("response", "RESPONSE", response)}
+      </div>
+      <div class="flow-bars">
+        <div class="flow-bar attack" style="width:${attack}%"><span>A ${attack}</span></div>
+        <div class="flow-bar defense" style="width:${defense}%"><span>D ${defense}</span></div>
+        <div class="flow-bar response" style="width:${response}%"><span>R ${response}</span></div>
+      </div>
+      <div class="flow-verdict ${verdictClass}">
+        <span class="flow-strongest">Strongest: ${strongest.label}</span>
+        <span class="flow-read">${verdict}</span>
+      </div>
+    </div>
+  `;
+}
+
 function renderBattleCard(card, px, sideClass, titleAgg, titlePas, tf) {
   if (!card) {
     return `<div class="fight-card ${sideClass}"><div class="flow">${titleAgg}</div><div class="fight-hint">Waiting for battle metrics…</div></div>`;
@@ -232,6 +333,7 @@ function renderBattleCard(card, px, sideClass, titleAgg, titlePas, tf) {
         <span class="pas">${titlePas}</span>
         <span class="tf">${tf} · USD</span>
       </div>
+      ${flowShape(card, sideClass)}
       ${section("Attack", attackBody)}
       ${section("Defense", defenseBody)}
       ${section("Response", responseBody)}

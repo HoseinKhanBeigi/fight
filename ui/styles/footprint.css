@@ -371,6 +371,195 @@ select {
   text-transform: uppercase;
 }
 
+.flow-shape {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 8px 4px 10px;
+  border-bottom: 1px solid var(--border-1);
+}
+
+.flow-chain {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  min-height: 64px;
+}
+
+.flow-node {
+  position: relative;
+  flex: 0 0 auto;
+  border-radius: 50%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--border-2);
+  background: var(--bg-3);
+  transition: transform 160ms ease, box-shadow 160ms ease;
+}
+
+.flow-node .flow-node-score {
+  font-family: var(--mono);
+  font-weight: 700;
+  font-size: 11px;
+  color: var(--text-0);
+  line-height: 1;
+}
+
+.flow-node .flow-node-label {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 8px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-3);
+  white-space: nowrap;
+}
+
+.flow-node.attack {
+  background: color-mix(in srgb, var(--buy) calc(var(--s) * 0.45%), var(--bg-3));
+  border-color: color-mix(in srgb, var(--buy) 55%, var(--border-1));
+}
+.fight-card.sell .flow-node.attack {
+  background: color-mix(in srgb, var(--sell) calc(var(--s) * 0.45%), var(--bg-3));
+  border-color: color-mix(in srgb, var(--sell) 55%, var(--border-1));
+}
+.flow-node.defense {
+  background: color-mix(in srgb, var(--passive) calc(var(--s) * 0.5%), var(--bg-3));
+  border-color: color-mix(in srgb, var(--passive) 60%, var(--border-1));
+}
+.flow-node.response {
+  background: color-mix(in srgb, var(--warn) calc(var(--s) * 0.4%), var(--bg-3));
+  border-color: color-mix(in srgb, var(--warn) 50%, var(--border-1));
+}
+
+.flow-node.active {
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--text-0) 25%, transparent);
+  transform: translateY(-1px);
+}
+
+.flow-arrow {
+  flex: 1 1 auto;
+  display: flex;
+  align-items: center;
+  min-width: 24px;
+  height: var(--w, 3px);
+  opacity: 0.9;
+}
+
+.flow-arrow-line {
+  flex: 1;
+  height: var(--w, 3px);
+  border-radius: 2px;
+  background: var(--text-3);
+}
+
+.flow-arrow-head {
+  width: 0;
+  height: 0;
+  border-top: 5px solid transparent;
+  border-bottom: 5px solid transparent;
+  border-left: 7px solid var(--text-3);
+  margin-left: 1px;
+}
+
+.flow-arrow.pierce .flow-arrow-line,
+.flow-arrow.follow .flow-arrow-line {
+  background: var(--buy);
+}
+.flow-arrow.pierce .flow-arrow-head,
+.flow-arrow.follow .flow-arrow-head {
+  border-left-color: var(--buy);
+}
+.fight-card.sell .flow-arrow.pierce .flow-arrow-line,
+.fight-card.sell .flow-arrow.follow .flow-arrow-line {
+  background: var(--sell);
+}
+.fight-card.sell .flow-arrow.pierce .flow-arrow-head,
+.fight-card.sell .flow-arrow.follow .flow-arrow-head {
+  border-left-color: var(--sell);
+}
+
+.flow-arrow.press .flow-arrow-line,
+.flow-arrow.soak .flow-arrow-line {
+  background: var(--passive);
+}
+.flow-arrow.press .flow-arrow-head,
+.flow-arrow.soak .flow-arrow-head {
+  border-left-color: var(--passive);
+}
+
+.flow-bars {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin-top: 14px;
+}
+
+.flow-bar {
+  height: 14px;
+  min-width: 18px;
+  border-radius: 2px;
+  display: flex;
+  align-items: center;
+  padding: 0 6px;
+  font-family: var(--mono);
+  font-size: 9px;
+  font-weight: 600;
+  color: var(--text-0);
+  max-width: 100%;
+  transition: width 180ms ease;
+}
+
+.flow-bar.attack {
+  background: color-mix(in srgb, var(--buy) 55%, var(--bg-4));
+}
+.fight-card.sell .flow-bar.attack {
+  background: color-mix(in srgb, var(--sell) 55%, var(--bg-4));
+}
+.flow-bar.defense {
+  background: color-mix(in srgb, var(--passive) 60%, var(--bg-4));
+}
+.flow-bar.response {
+  background: color-mix(in srgb, var(--warn) 50%, var(--bg-4));
+}
+
+.flow-verdict {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 6px 12px;
+  font-size: 10px;
+  letter-spacing: 0.03em;
+}
+
+.flow-strongest {
+  color: var(--text-3);
+  text-transform: uppercase;
+}
+
+.flow-read {
+  font-weight: 650;
+  color: var(--text-1);
+}
+
+.flow-verdict.flow-attack .flow-read {
+  color: var(--buy);
+}
+.fight-card.sell .flow-verdict.flow-attack .flow-read {
+  color: var(--sell);
+}
+.flow-verdict.flow-defense .flow-read {
+  color: var(--passive);
+}
+.flow-verdict.flow-balanced .flow-read {
+  color: var(--text-2);
+}
+
 .battle-sec {
   border-top: 1px solid var(--border-1);
   padding-top: 8px;
