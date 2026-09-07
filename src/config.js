@@ -1,7 +1,7 @@
 /** Configurable parameters for the order-flow monitor. */
 export const CONFIG = {
   symbol: "btcusdt",
-  windows: [1, 5, 15, 60, 300, 900, 1800, 2700],
+  windows: [60, 300, 900, 1800, 2700],
   bookDepthLimit: 1000,
   nearBookLevels: 20,
   footprintBidLevels: 30,

@@ -264,8 +264,8 @@ export class OrderFlowMonitor {
 
     const bb = this.book.bestBid();
     const ba = this.book.bestAsk();
-    const primaryWindow = 5;
-    const liq5 = liqWindows[primaryWindow] || liqWindows[15] || {};
+    const primaryWindow = 60;
+    const liq5 = liqWindows[primaryWindow] || liqWindows[300] || {};
 
     const serializeWall = (w) =>
       w

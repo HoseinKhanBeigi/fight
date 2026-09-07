@@ -27,10 +27,6 @@ const WATCHLIST = [...CRYPTO_WATCHLIST, ...EQUITY_WATCHLIST];
 
 /** Fight metric windows in seconds */
 const INTERVALS = [
-  { sec: 1, label: "1s" },
-  { sec: 5, label: "5s" },
-  { sec: 15, label: "15s" },
-  { sec: 30, label: "30s" },
   { sec: 60, label: "1m" },
   { sec: 300, label: "5m" },
   { sec: 900, label: "15m" },
@@ -40,7 +36,7 @@ const INTERVALS = [
 
 const ui = {
   symbol: "BTCUSDT",
-  interval: 5,
+  interval: 60,
   last: null,
   ticker24h: null,
   headerReady: false,
@@ -290,12 +286,12 @@ function renderFight(s) {
   const flow =
     s.flowWindows?.[w] ||
     s.flowWindows?.[60] ||
-    s.flowWindows?.[5] ||
+    s.flowWindows?.[300] ||
     {};
   const liq =
     s.liqWindows?.[w] ||
     s.liqWindows?.[60] ||
-    s.liqWindows?.[5] ||
+    s.liqWindows?.[300] ||
     {};
 
   const buy = {

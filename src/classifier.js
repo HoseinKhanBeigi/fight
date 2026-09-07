@@ -62,9 +62,9 @@ export class MarketClassifier {
       priceChangeTicks5s,
     } = ctx;
 
-    const w = 5;
-    const flow = flowWindows[w] || flowWindows[15] || Object.values(flowWindows)[0];
-    const liq = liqWindows[w] || liqWindows[15] || Object.values(liqWindows)[0];
+    const w = 60;
+    const flow = flowWindows[w] || flowWindows[300] || Object.values(flowWindows)[0];
+    const liq = liqWindows[w] || liqWindows[300] || Object.values(liqWindows)[0];
     if (!flow || !liq) return this.currentState;
 
     const eps = this.config.epsilon;
