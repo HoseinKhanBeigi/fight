@@ -349,8 +349,9 @@ function renderBattleCard(card, px, sideClass, titleAgg, titlePas, tf) {
 }
 
 /**
- * Same-side presence: Aggressive buyers vs Passive buyers (bids),
- * Aggressive sellers vs Passive sellers (asks).
+ * Fight pairing presence:
+ * Aggressive buyers vs Passive asks
+ * Aggressive sellers vs Passive bids
  */
 function sidePresenceShape(s, w, px) {
   const flow =
@@ -358,10 +359,11 @@ function sidePresenceShape(s, w, px) {
     s.flowWindows?.[60] ||
     s.flowWindows?.[String(w)] ||
     {};
-  const aggBuy = Number(flow.aggressiveBuyVolume) || 0;
-  const aggSell = Number(flow.aggressiveSellVolume) || 0;
-  const passBuy = Number(s.bidLiquidity) || 0; // resting bids = passive buyers
-  const passSell = Number(s.askLiquidity) || 0; // resting asks = passive sellers
+  const pack = s.battlesByWindow?.[w] || s.battlesByWindow?.[String(w)] || {};
+  const aggBuy = Number(flow.aggressiveBuyVolume ?? pack.buy?.attack?.aggressiveVolume) || 0;
+  const aggSell = Number(flow.aggressiveSellVolume ?? pack.sell?.attack?.aggressiveVolume) || 0;
+  const passAsk = Number(s.askLiquidity ?? pack.buy?.defense?.currentLiquidity) || 0;
+  const passBid = Number(s.bidLiquidity ?? pack.sell?.defense?.currentLiquidity) || 0;
 
   const pair = (agg, pass, kind) => {
     const total = Math.max(agg + pass, 1e-9);
@@ -371,18 +373,18 @@ function sidePresenceShape(s, w, px) {
     const label =
       kind === "buy"
         ? aggDom
-          ? "AGGRESSIVE BUYERS LEAD"
-          : "PASSIVE BUYERS LEAD"
+          ? "AGGRESSIVE BUYERS PRESS ASKS"
+          : "PASSIVE ASKS OUTWEIGH BUYERS"
         : aggDom
-          ? "AGGRESSIVE SELLERS LEAD"
-          : "PASSIVE SELLERS LEAD";
+          ? "AGGRESSIVE SELLERS PRESS BIDS"
+          : "PASSIVE BIDS OUTWEIGH SELLERS";
 
     const aggSize = 34 + (aggPct / 100) * 28;
     const passSize = 34 + (passPct / 100) * 28;
 
     return `
       <div class="side-pair ${kind}">
-        <div class="side-pair-title">${kind === "buy" ? "Buy side" : "Sell side"}</div>
+        <div class="side-pair-title">${kind === "buy" ? "Buyers → Asks" : "Sellers → Bids"}</div>
         <div class="side-pair-chain">
           <div class="side-bubble agg" style="width:${aggSize}px;height:${aggSize}px" title="Aggressive ${fmtUsd(notional(agg, px))}">
             <b>${aggPct}</b>
@@ -402,21 +404,21 @@ function sidePresenceShape(s, w, px) {
         </div>
         <div class="side-pair-meta">
           <span class="agg-m">${kind === "buy" ? "Aggressive buyers" : "Aggressive sellers"} <b>${fmtUsd(notional(agg, px))}</b></span>
-          <span class="pass-m">${kind === "buy" ? "Passive buyers (bids)" : "Passive sellers (asks)"} <b>${fmtUsd(notional(pass, px))}</b></span>
+          <span class="pass-m">${kind === "buy" ? "Passive asks" : "Passive bids"} <b>${fmtUsd(notional(pass, px))}</b></span>
         </div>
         <div class="side-pair-verdict ${aggDom ? "agg-lead" : "pass-lead"}">${label}</div>
       </div>`;
   };
 
   return `
-    <div class="side-presence" aria-label="Aggressive vs passive same-side presence">
+    <div class="side-presence" aria-label="Aggressive vs opposing passive liquidity">
       <div class="side-presence-head">
-        <span>Same-side presence</span>
-        <small>Aggressive tape vs resting book on each side</small>
+        <span>Attack vs opposing book</span>
+        <small>Aggressive buyers vs asks · Aggressive sellers vs bids</small>
       </div>
       <div class="side-presence-grid">
-        ${pair(aggBuy, passBuy, "buy")}
-        ${pair(aggSell, passSell, "sell")}
+        ${pair(aggBuy, passAsk, "buy")}
+        ${pair(aggSell, passBid, "sell")}
       </div>
     </div>`;
 }
