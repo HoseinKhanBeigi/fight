@@ -1529,7 +1529,8 @@ select {
 
 .premove.is-lowconf .premove-summary,
 .premove.is-lowconf .premove-factors,
-.premove.is-lowconf .premove-driver { opacity: 0.55; }
+.premove.is-lowconf .premove-driver,
+.premove.is-lowconf .pm-hist { opacity: 0.55; }
 .premove.is-lowconf .pm-side.up .pm-score,
 .premove.is-lowconf .pm-side.down .pm-score,
 .premove.is-lowconf .pm-score.up,
@@ -1682,6 +1683,84 @@ select {
   color: var(--text-2);
 }
 .pm-align-read b { color: var(--text-1); }
+
+.pm-hist {
+  border-top: 1px solid var(--border-1);
+  padding-top: 8px;
+}
+.pm-hist-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+.pm-hist-legend {
+  display: flex;
+  gap: 12px;
+  font-size: 9px;
+  letter-spacing: 0.08em;
+  font-weight: 650;
+}
+.pm-hist-legend .up { color: var(--buy); }
+.pm-hist-legend .down { color: var(--sell); }
+.pm-hist-windows { display: flex; gap: 4px; }
+.pm-hist-windows button {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  padding: 2px 6px;
+  border: 1px solid var(--border-1);
+  background: var(--bg-3);
+  color: var(--text-3);
+  border-radius: 3px;
+  cursor: pointer;
+}
+.pm-hist-windows button.active {
+  color: var(--text-1);
+  border-color: var(--border-2);
+  background: var(--bg-4);
+}
+.pm-hist-plot {
+  position: relative;
+  height: 96px;
+}
+.pm-hist-plot canvas {
+  width: 100%;
+  height: 96px;
+  display: block;
+  cursor: crosshair;
+}
+.pm-hist-tip {
+  position: absolute;
+  min-width: 168px;
+  padding: 6px 8px;
+  border: 1px solid var(--border-2);
+  border-radius: 3px;
+  background: var(--bg-3);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.35);
+  pointer-events: none;
+  z-index: 3;
+}
+.pm-hist-tip-time {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text-0);
+  margin-bottom: 5px;
+}
+.pm-hist-tip-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  font-family: var(--mono);
+  font-size: 11px;
+  line-height: 1.45;
+}
+.pm-hist-tip-row span { color: var(--text-3); }
+.pm-hist-tip-row b { color: var(--text-0); font-weight: 600; }
+.pm-hist-tip-row b.up { color: var(--buy); }
+.pm-hist-tip-row b.down { color: var(--sell); }
 
 #premove-root,
 #battle-root {

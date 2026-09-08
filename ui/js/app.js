@@ -44,6 +44,7 @@ const PREMOVE_INTERVALS = [
 ];
 
 const PREMOVE_PAINT_MS = 1000;
+const PREMOVE_CHART_MS = 750;
 const PREMOVE_EMA_TAU_SEC = 4;
 const PREMOVE_ENTER = 70;
 const PREMOVE_EXIT = 55;
@@ -51,6 +52,14 @@ const PREMOVE_STRONG_ENTER = 80;
 const PREMOVE_STRONG_EXIT = 65;
 const PREMOVE_HOLD_MS = 3000;
 const PREMOVE_STRONG_HOLD_MS = 5000;
+const PREMOVE_HIST_KEEP_MS = 300_000;
+const PREMOVE_CROSS_GAP = 8;
+const PREMOVE_CROSS_HOLD_MS = 2500;
+const PREMOVE_CHART_WINDOWS = [
+  { sec: 30, label: "30s" },
+  { sec: 60, label: "1m" },
+  { sec: 300, label: "5m" },
+];
 
 const ui = {
   symbol: "BTCUSDT",
@@ -63,6 +72,9 @@ const ui = {
     calib: false,
   },
   preMovePaintAt: 0,
+  preMoveChartAt: 0,
+  preMoveChartWindow: 60,
+  preMoveHoverT: null,
   last: null,
   ticker24h: null,
   headerReady: false,
@@ -573,6 +585,8 @@ function emptyDisplayPressure(windowSec) {
     lastChange: 0,
     card: null,
     confidence: 0,
+    crosses: [],
+    crossPending: null,
   };
 }
 
@@ -656,10 +670,6 @@ function ingestDisplayPressure(s) {
   if (Number.isFinite(src.up)) dp.up = emaStep(dp.up, src.up, dtSec, PREMOVE_EMA_TAU_SEC);
   if (Number.isFinite(src.down)) dp.down = emaStep(dp.down, src.down, dtSec, PREMOVE_EMA_TAU_SEC);
 
-  dp.hist.push({ t: now, up: dp.up, down: dp.down });
-  const cutoff = now - 8000;
-  while (dp.hist.length > 2 && dp.hist[0].t < cutoff) dp.hist.shift();
-
   const up = dp.up ?? 0;
   const down = dp.down ?? 0;
   const desired = displayCandidate(up, down, src.confidence, dp.state);
@@ -667,26 +677,64 @@ function ingestDisplayPressure(s) {
   if (desired === dp.state) {
     dp.candidate = null;
     dp.candidateSince = 0;
-    return dp;
-  }
-
-  if (dp.candidate !== desired) {
+  } else if (dp.candidate !== desired) {
     dp.candidate = desired;
     dp.candidateSince = now;
-    return dp;
+  } else if (now - dp.candidateSince >= PREMOVE_HOLD_MS) {
+    const strongDwell =
+      (dp.state === "STRONG_UPSIDE_PRESSURE" || dp.state === "STRONG_DOWNSIDE_PRESSURE") &&
+      desired !== "LOW_CONFIDENCE" &&
+      dp.lastChange &&
+      now - dp.lastChange < PREMOVE_STRONG_HOLD_MS;
+    if (!strongDwell) commitDisplayState(dp, now, desired);
   }
 
-  if (now - dp.candidateSince < PREMOVE_HOLD_MS) return dp;
-
-  const strongDwell =
-    (dp.state === "STRONG_UPSIDE_PRESSURE" || dp.state === "STRONG_DOWNSIDE_PRESSURE") &&
-    desired !== "LOW_CONFIDENCE" &&
-    dp.lastChange &&
-    now - dp.lastChange < PREMOVE_STRONG_HOLD_MS;
-  if (strongDwell) return dp;
-
-  commitDisplayState(dp, now, desired);
+  const shownState = src.confidence < 35 ? "LOW_CONFIDENCE" : dp.state;
+  dp.hist.push({
+    t: now,
+    up: dp.up,
+    down: dp.down,
+    imb: up - down,
+    state: shownState,
+  });
+  const cutoff = now - PREMOVE_HIST_KEEP_MS;
+  while (dp.hist.length > 2 && dp.hist[0].t < cutoff) dp.hist.shift();
+  ingestCrossover(dp, now);
   return dp;
+}
+
+function ingestCrossover(dp, now) {
+  const hist = dp.hist;
+  if (hist.length < 2) return;
+  const prev = hist[hist.length - 2];
+  const cur = hist[hist.length - 1];
+  const prevDiff = (prev.up ?? 0) - (prev.down ?? 0);
+  const diff = (cur.up ?? 0) - (cur.down ?? 0);
+  const crossedUp = prevDiff <= 0 && diff > 0;
+  const crossedDown = prevDiff >= 0 && diff < 0;
+  if (crossedUp) dp.crossPending = { side: "up", t: now, leadSince: null };
+  else if (crossedDown) dp.crossPending = { side: "down", t: now, leadSince: null };
+
+  const pending = dp.crossPending;
+  if (pending) {
+    const stillAhead = pending.side === "up" ? diff > 0 : diff < 0;
+    const gapOk = pending.side === "up" ? diff >= PREMOVE_CROSS_GAP : diff <= -PREMOVE_CROSS_GAP;
+    if (!stillAhead) {
+      dp.crossPending = null;
+    } else if (!gapOk) {
+      pending.leadSince = null;
+    } else {
+      if (!pending.leadSince) pending.leadSince = now;
+      if (now - pending.leadSince >= PREMOVE_CROSS_HOLD_MS) {
+        const last = dp.crosses[dp.crosses.length - 1];
+        if (!last || last.side !== pending.side || now - last.t > 4000) {
+          dp.crosses.push({ t: pending.t, side: pending.side });
+        }
+        dp.crossPending = null;
+      }
+    }
+  }
+  while (dp.crosses.length && now - dp.crosses[0].t > PREMOVE_HIST_KEEP_MS) dp.crosses.shift();
 }
 
 function signedNum(n, d = 0) {
@@ -937,12 +985,20 @@ function dispScore(n) {
   return Math.round(n);
 }
 
-function renderPreMove(s) {
-  const pm = s.preMove;
-  if (!pm?.current && !pm?.byWindow) {
-    return `<div class="premove"><div class="premove-title">Pre-move pressure</div><div class="fight-hint">Waiting for pre-move engine…</div></div>`;
-  }
+function fmtClock(t) {
+  const d = new Date(t);
+  if (Number.isNaN(d.getTime())) return "—";
+  return d.toLocaleTimeString(undefined, {
+    hour12: false,
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+  });
+}
 
+function preMoveView(s) {
+  const pm = s.preMove;
+  if (!pm?.current && !pm?.byWindow) return null;
   const w = selectedWindow(s);
   const dp = ui.displayPressure || emptyDisplayPressure(w);
   const c =
@@ -973,8 +1029,310 @@ function renderPreMove(s) {
     },
     confirm
   );
-  const open = ui.preMoveOpen;
+  return { pm, w, dp, c, bd, f, confirm, up, down, imb, upTrend, downTrend, conf, state, confLow, driver };
+}
 
+function chartSamples(dp, spanSec, now) {
+  const t1 = now;
+  const t0 = t1 - spanSec * 1000;
+  const rows = (dp?.hist || []).filter(
+    (p) => p.t >= t0 && Number.isFinite(p.up) && Number.isFinite(p.down)
+  );
+  return { t0, t1, rows };
+}
+
+function nearestSample(rows, t) {
+  if (!rows.length) return null;
+  let best = rows[0];
+  let bestD = Math.abs(rows[0].t - t);
+  for (const row of rows) {
+    const d = Math.abs(row.t - t);
+    if (d < bestD) {
+      best = row;
+      bestD = d;
+    }
+  }
+  return best;
+}
+
+function syncChartWindowButtons() {
+  $("pm-hist-iv")?.querySelectorAll("button").forEach((btn) => {
+    btn.classList.toggle("active", Number(btn.dataset.n) === ui.preMoveChartWindow);
+  });
+}
+
+function initPressureChart() {
+  const mount = $("pm-hist-mount");
+  if (!mount || mount.dataset.ready === "1") return;
+  mount.innerHTML = `
+    <div class="pm-hist-head">
+      <div class="pm-hist-legend">
+        <span class="up">UP PRESSURE</span>
+        <span class="down">DOWN PRESSURE</span>
+      </div>
+      <div class="pm-hist-windows" id="pm-hist-iv">
+        ${PREMOVE_CHART_WINDOWS.map(
+          (it) =>
+            `<button type="button" data-n="${it.sec}">${it.label}</button>`
+        ).join("")}
+      </div>
+    </div>
+    <div class="pm-hist-plot">
+      <canvas id="pm-hist-canvas"></canvas>
+      <div id="pm-hist-tip" class="pm-hist-tip" hidden></div>
+    </div>
+  `;
+  mount.dataset.ready = "1";
+  $("pm-hist-iv")?.querySelectorAll("button").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const n = Number(btn.dataset.n);
+      if (!n || n === ui.preMoveChartWindow) return;
+      ui.preMoveChartWindow = n;
+      syncChartWindowButtons();
+      drawPressureChart();
+    });
+  });
+  const canvas = $("pm-hist-canvas");
+  canvas.addEventListener("mousemove", onPressureChartMove);
+  canvas.addEventListener("mouseleave", () => {
+    ui.preMoveHoverT = null;
+    const tip = $("pm-hist-tip");
+    if (tip) tip.hidden = true;
+    drawPressureChart();
+  });
+  syncChartWindowButtons();
+}
+
+function onPressureChartMove(ev) {
+  const layout = ui.preMoveChartLayout;
+  if (!layout) return;
+  const canvas = $("pm-hist-canvas");
+  const rect = canvas.getBoundingClientRect();
+  const mx = ev.clientX - rect.left;
+  const x = mx - layout.padL;
+  if (x < 0 || x > layout.plotW) {
+    ui.preMoveHoverT = null;
+    const tip = $("pm-hist-tip");
+    if (tip) tip.hidden = true;
+    drawPressureChart();
+    return;
+  }
+  const t = layout.t0 + (x / layout.plotW) * (layout.t1 - layout.t0);
+  ui.preMoveHoverT = t;
+  drawPressureChart();
+  const row = nearestSample(layout.rows, t);
+  const tip = $("pm-hist-tip");
+  if (!tip || !row) return;
+  const imb = Math.round((row.up ?? 0) - (row.down ?? 0));
+  tip.hidden = false;
+  tip.innerHTML = `
+    <div class="pm-hist-tip-time">${fmtClock(row.t)}</div>
+    <div class="pm-hist-tip-row"><span>Up Pressure</span><b class="up">${dispScore(row.up)}</b></div>
+    <div class="pm-hist-tip-row"><span>Down Pressure</span><b class="down">${dispScore(row.down)}</b></div>
+    <div class="pm-hist-tip-row"><span>Imbalance</span><b class="${imb > 0 ? "up" : imb < 0 ? "down" : ""}">${signedNum(imb)}</b></div>
+    <div class="pm-hist-tip-row"><span>State</span><b>${prettyState(row.state)}</b></div>
+  `;
+  const tw = tip.offsetWidth || 160;
+  const th = tip.offsetHeight || 88;
+  let left = mx + 12;
+  let top = ev.clientY - rect.top - th - 8;
+  if (left + tw > rect.width - 4) left = mx - tw - 12;
+  if (top < 4) top = ev.clientY - rect.top + 12;
+  tip.style.left = `${Math.max(4, left)}px`;
+  tip.style.top = `${Math.max(4, top)}px`;
+}
+
+function drawPressureChart() {
+  const canvas = $("pm-hist-canvas");
+  const mount = $("pm-hist-mount");
+  if (!canvas || !mount) return;
+  const dp = ui.displayPressure;
+  const now = Date.now();
+  const span = ui.preMoveChartWindow || 60;
+  const { t0, t1, rows } = chartSamples(dp, span, now);
+  const plot = canvas.parentElement;
+  const cssW = Math.max(1, Math.floor(plot.clientWidth || plot.getBoundingClientRect().width));
+  const cssH = Math.max(92, Math.floor(plot.clientHeight || 92));
+  const dpr = window.devicePixelRatio || 1;
+  if (canvas.width !== Math.floor(cssW * dpr) || canvas.height !== Math.floor(cssH * dpr)) {
+    canvas.width = Math.floor(cssW * dpr);
+    canvas.height = Math.floor(cssH * dpr);
+    canvas.style.width = `${cssW}px`;
+    canvas.style.height = `${cssH}px`;
+  }
+  const ctx = canvas.getContext("2d");
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, cssW, cssH);
+
+  const padL = 28;
+  const padR = 8;
+  const padT = 10;
+  const padB = 6;
+  const plotW = Math.max(1, cssW - padL - padR);
+  const plotH = Math.max(1, cssH - padT - padB);
+  const xAt = (t) => padL + ((t - t0) / Math.max(1, t1 - t0)) * plotW;
+  const yAt = (v) => padT + (1 - Math.max(0, Math.min(100, v)) / 100) * plotH;
+
+  ui.preMoveChartLayout = { padL, padT, plotW, plotH, t0, t1, rows };
+
+  ctx.font = "9px IBM Plex Mono, SF Mono, Consolas, monospace";
+  ctx.textAlign = "right";
+  ctx.textBaseline = "middle";
+  for (const level of [0, 25, 50, 75, 100]) {
+    const y = yAt(level);
+    ctx.beginPath();
+    ctx.moveTo(padL, y);
+    ctx.lineTo(padL + plotW, y);
+    if (level === 50) {
+      ctx.strokeStyle = "rgba(232, 234, 239, 0.22)";
+      ctx.lineWidth = 1;
+      ctx.setLineDash([3, 3]);
+    } else {
+      ctx.strokeStyle = "rgba(82, 90, 107, 0.35)";
+      ctx.lineWidth = 1;
+      ctx.setLineDash(level === 0 || level === 100 ? [] : [2, 4]);
+    }
+    ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.fillStyle = level === 50 ? "#b4bac6" : "#525a6b";
+    ctx.fillText(String(level), padL - 4, y);
+  }
+
+  if (rows.length >= 2) {
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(padL, padT, plotW, plotH);
+    ctx.clip();
+    for (let i = 0; i < rows.length - 1; i++) {
+      const a = rows[i];
+      const b = rows[i + 1];
+      const upDom = (a.up + b.up) / 2 >= (a.down + b.down) / 2;
+      ctx.beginPath();
+      ctx.moveTo(xAt(a.t), yAt(a.up));
+      ctx.lineTo(xAt(b.t), yAt(b.up));
+      ctx.lineTo(xAt(b.t), yAt(b.down));
+      ctx.lineTo(xAt(a.t), yAt(a.down));
+      ctx.closePath();
+      ctx.fillStyle = upDom ? "rgba(61, 154, 106, 0.08)" : "rgba(196, 92, 92, 0.08)";
+      ctx.fill();
+    }
+
+    const strokeLine = (field, color) => {
+      ctx.beginPath();
+      rows.forEach((p, i) => {
+        const x = xAt(p.t);
+        const y = yAt(p[field]);
+        if (i === 0) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
+      });
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+    };
+    strokeLine("down", "#c45c5c");
+    strokeLine("up", "#3d9a6a");
+    ctx.restore();
+  } else if (rows.length === 1) {
+    ctx.fillStyle = "#3d9a6a";
+    ctx.beginPath();
+    ctx.arc(xAt(rows[0].t), yAt(rows[0].up), 2.5, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = "#c45c5c";
+    ctx.beginPath();
+    ctx.arc(xAt(rows[0].t), yAt(rows[0].down), 2.5, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  const crosses = (dp?.crosses || []).filter((c) => c.t >= t0 && c.t <= t1);
+  ctx.font = "8px IBM Plex Sans, Segoe UI, sans-serif";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "bottom";
+  for (const mark of crosses) {
+    const x = xAt(mark.t);
+    const row = nearestSample(rows, mark.t);
+    const y = yAt(((row?.up ?? 50) + (row?.down ?? 50)) / 2);
+    const up = mark.side === "up";
+    ctx.beginPath();
+    ctx.moveTo(x, padT);
+    ctx.lineTo(x, padT + plotH);
+    ctx.strokeStyle = up ? "rgba(61, 154, 106, 0.35)" : "rgba(196, 92, 92, 0.35)";
+    ctx.lineWidth = 1;
+    ctx.setLineDash([2, 3]);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.fillStyle = up ? "#3d9a6a" : "#c45c5c";
+    ctx.beginPath();
+    ctx.arc(x, y, 3.5, 0, Math.PI * 2);
+    ctx.fill();
+    const label = up ? "UPSIDE PRESSURE CROSS" : "DOWNSIDE PRESSURE CROSS";
+    const labelX = Math.min(padL + plotW - 4, Math.max(padL + 4, x));
+    ctx.textAlign = x > padL + plotW - 90 ? "right" : x < padL + 90 ? "left" : "center";
+    ctx.fillText(label, labelX, Math.max(padT + 9, y - 6));
+  }
+
+  if (ui.preMoveHoverT != null && rows.length) {
+    const hover = nearestSample(rows, ui.preMoveHoverT);
+    if (hover) {
+      const x = xAt(hover.t);
+      ctx.beginPath();
+      ctx.moveTo(x, padT);
+      ctx.lineTo(x, padT + plotH);
+      ctx.strokeStyle = "rgba(232, 234, 239, 0.28)";
+      ctx.lineWidth = 1;
+      ctx.setLineDash([]);
+      ctx.stroke();
+      ctx.fillStyle = "#3d9a6a";
+      ctx.beginPath();
+      ctx.arc(x, yAt(hover.up), 3, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = "#c45c5c";
+      ctx.beginPath();
+      ctx.arc(x, yAt(hover.down), 3, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+}
+
+function renderPreMoveMain(v) {
+  const { w, up, down, imb, upTrend, downTrend, conf, state, confLow } = v;
+  return `
+      <div class="premove-head">
+        <div class="premove-title">Pre-move pressure</div>
+        <div class="premove-tf-now">${tfLabel(w)}</div>
+        <div class="premove-tfs" id="pm-iv">
+          ${PREMOVE_INTERVALS.map((it) => {
+            const on = it.sec === w;
+            return `<button type="button" data-n="${it.sec}" class="${on ? "active" : ""}">${it.label}</button>`;
+          }).join("")}
+        </div>
+        <div class="premove-conf ${confLow ? "low" : ""}">CONF ${Math.round(conf)}%</div>
+      </div>
+
+      <div class="premove-state ${premoveStateClass(state)}">${prettyState(state)}</div>
+
+      <div class="premove-summary">
+        <div class="pm-side up">
+          <div class="pm-kicker">Up pressure</div>
+          <div class="pm-score">${dispScore(up)}</div>
+          <div class="pm-meta"><b class="${trendClass(upTrend)}">${prettyState(upTrend)}</b></div>
+        </div>
+        <div class="pm-side down">
+          <div class="pm-kicker">Down pressure</div>
+          <div class="pm-score">${dispScore(down)}</div>
+          <div class="pm-meta"><b class="${trendClass(downTrend)}">${prettyState(downTrend)}</b></div>
+        </div>
+        <div class="pm-side imb">
+          <div class="pm-kicker">Imbalance</div>
+          <div class="pm-score ${imb > 4 ? "up" : imb < -4 ? "down" : ""}">${signedNum(imb)}</div>
+          <div class="pm-meta"><span>${tfLabel(w)}</span></div>
+        </div>
+      </div>
+  `;
+}
+
+function renderPreMoveTail(v) {
+  const { pm, w, dp, c, bd, f, confirm, up, down, state, driver } = v;
+  const open = ui.preMoveOpen;
   const tfBadges = (pm.windows || PREMOVE_INTERVALS.map((x) => x.sec))
     .map((sec) => {
       const row = windowRow(pm, sec);
@@ -1029,8 +1387,8 @@ function renderPreMove(s) {
   const calRows = cal
     ? Object.entries(cal.normalized || {})
         .map(
-          ([k, v]) =>
-            `<tr><td>${featureLabel(k)}</td><td>${Math.round(v)}</td><td>${
+          ([k, val]) =>
+            `<tr><td>${featureLabel(k)}</td><td>${Math.round(val)}</td><td>${
               cal.percentiles?.[k] == null ? "—" : Math.round(cal.percentiles[k] * 100) + "th"
             }</td><td>${cal.contributions?.up?.[k] ?? cal.contributions?.down?.[k] ?? "—"}</td></tr>`
         )
@@ -1038,39 +1396,6 @@ function renderPreMove(s) {
     : "";
 
   return `
-    <div class="premove${confLow ? " is-lowconf" : ""}">
-      <div class="premove-head">
-        <div class="premove-title">Pre-move pressure</div>
-        <div class="premove-tf-now">${tfLabel(w)}</div>
-        <div class="premove-tfs" id="pm-iv">
-          ${PREMOVE_INTERVALS.map((it) => {
-            const on = it.sec === w;
-            return `<button type="button" data-n="${it.sec}" class="${on ? "active" : ""}">${it.label}</button>`;
-          }).join("")}
-        </div>
-        <div class="premove-conf ${confLow ? "low" : ""}">CONF ${Math.round(conf)}%</div>
-      </div>
-
-      <div class="premove-state ${premoveStateClass(state)}">${prettyState(state)}</div>
-
-      <div class="premove-summary">
-        <div class="pm-side up">
-          <div class="pm-kicker">Up pressure</div>
-          <div class="pm-score">${dispScore(up)}</div>
-          <div class="pm-meta"><b class="${trendClass(upTrend)}">${prettyState(upTrend)}</b></div>
-        </div>
-        <div class="pm-side down">
-          <div class="pm-kicker">Down pressure</div>
-          <div class="pm-score">${dispScore(down)}</div>
-          <div class="pm-meta"><b class="${trendClass(downTrend)}">${prettyState(downTrend)}</b></div>
-        </div>
-        <div class="pm-side imb">
-          <div class="pm-kicker">Imbalance</div>
-          <div class="pm-score ${imb > 4 ? "up" : imb < -4 ? "down" : ""}">${signedNum(imb)}</div>
-          <div class="pm-meta"><span>${tfLabel(w)}</span></div>
-        </div>
-      </div>
-
       <div class="premove-driver">
         <div class="pm-kicker">Main driver</div>
         <div class="pm-driver-label">${driver.label}</div>
@@ -1195,7 +1520,6 @@ function renderPreMove(s) {
           }
         </details>
       </div>
-    </div>
   `;
 }
 
@@ -1205,10 +1529,38 @@ function ensureFightShell() {
   el.innerHTML = `<div id="premove-root"></div><div id="battle-root"></div>`;
 }
 
-function paintPreMove(s) {
+function ensurePreMoveShell() {
   ensureFightShell();
-  $("premove-root").innerHTML = renderPreMove(s);
+  const root = $("premove-root");
+  if (root.querySelector("#pm-box")) return;
+  root.innerHTML = `
+    <div class="premove" id="pm-box">
+      <div id="pm-panel"></div>
+      <div id="pm-hist-mount" class="pm-hist"></div>
+      <div id="pm-tail"></div>
+    </div>
+  `;
+  initPressureChart();
+}
+
+function paintPreMove(s) {
+  ensurePreMoveShell();
+  const v = preMoveView(s);
+  const box = $("pm-box");
+  if (!v) {
+    box.classList.remove("is-lowconf");
+    $("pm-panel").innerHTML = `<div class="premove-title">Pre-move pressure</div><div class="fight-hint">Waiting for pre-move engine…</div>`;
+    $("pm-tail").innerHTML = "";
+    drawPressureChart();
+    return;
+  }
+  box.classList.toggle("is-lowconf", v.confLow);
+  $("pm-panel").innerHTML = renderPreMoveMain(v);
+  $("pm-tail").innerHTML = renderPreMoveTail(v);
   bindPreMoveButtons();
+  syncChartWindowButtons();
+  drawPressureChart();
+  requestAnimationFrame(() => drawPressureChart());
 }
 
 function paintBattle(s) {
@@ -1440,7 +1792,11 @@ function renderAll(s, forcePaint = false) {
   const now = Date.now();
   if (forcePaint || now - ui.preMovePaintAt >= PREMOVE_PAINT_MS) {
     ui.preMovePaintAt = now;
+    ui.preMoveChartAt = now;
     paintPreMove(s);
+  } else if (now - ui.preMoveChartAt >= PREMOVE_CHART_MS) {
+    ui.preMoveChartAt = now;
+    drawPressureChart();
   }
 }
 
