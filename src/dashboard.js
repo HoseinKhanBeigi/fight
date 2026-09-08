@@ -252,21 +252,6 @@ export class Dashboard {
     }
     lines.push("");
 
-    const pm = s.preMove?.current;
-    if (pm) {
-      lines.push(header("PRE-MOVE PRESSURE"));
-      lines.push(
-        `Up ${pm.upPressure}/100 (${String(pm.upTrend || "").replace(/_/g, " ")})   Down ${pm.downPressure}/100 (${String(pm.downTrend || "").replace(/_/g, " ")})   Imb ${signed(pm.pressureImbalance, 0)}`
-      );
-      lines.push(
-        `State ${BOLD}${pm.state}${RESET}   Conf ${pm.confidence}/100   Align ${s.preMove.alignment?.score ?? "—"}/100`
-      );
-      if (pm.why?.length) {
-        for (const line of pm.why.slice(0, 4)) lines.push(`  ${DIM}– ${line}${RESET}`);
-      }
-      lines.push("");
-    }
-
     // Battles side by side (stacked vertically for terminal width)
     lines.push(...battleBlock("BUY SIDE BATTLE", s.buyBattle, "Aggressive Buyers", "Passive Sellers (Asks)"));
     lines.push("");

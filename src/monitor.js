@@ -6,36 +6,21 @@ import { LocalOrderBook } from "./book.js";
 import { AggressiveFlowTracker, TradePrint } from "./trades.js";
 import { LiquidityEngine } from "./liquidity.js";
 import { WallTracker } from "./walls.js";
-import { MarketClassifier, absorptionFlags } from "./classifier.js";
-import { MarketBattleEngine } from "./battle.js";
+import { MarketClassifier } from "./classifier.js";
 import { FootprintAggregator } from "./footprint.js";
-import { PreMovePressureEngine } from "./microstructure/PreMovePressureEngine.js";
 import { fetchAggTradesHistory, lookbackForInterval } from "./history.js";
-
-function mergeWindows(a = [], b = []) {
-  return [...new Set([...a, ...b])].sort((x, y) => x - y);
-}
 
 export class OrderFlowMonitor {
   constructor(config = CONFIG) {
     this.config = { ...CONFIG, ...config };
-    this.trackingWindows = mergeWindows(
-      this.config.windows,
-      this.config.preMove?.windows
-    );
     this.book = new LocalOrderBook(this.config.nearBookLevels);
     this.flow = new AggressiveFlowTracker(
-      this.trackingWindows,
+      this.config.windows,
       this.config.tradeBookMatchToleranceMs
     );
-    this.liquidity = new LiquidityEngine({
-      ...this.config,
-      windows: this.trackingWindows,
-    });
+    this.liquidity = new LiquidityEngine(this.config);
     this.walls = new WallTracker(this.config);
     this.classifier = new MarketClassifier(this.config);
-    this.battle = new MarketBattleEngine(this.config);
-    this.preMove = new PreMovePressureEngine(this.config);
     this.footprint = new FootprintAggregator({
       intervalSec: this.config.footprintIntervalSec ?? 5,
       maxColumns: this.config.footprintColumns ?? 48,
@@ -69,8 +54,6 @@ export class OrderFlowMonitor {
         this.ready = false;
         this.book.clear();
         this.liquidity.clear();
-        this.battle.clear();
-        this.preMove.clear();
       },
       onStatus: (msg) => {
         // Don't clobber an active backfill status line
@@ -231,13 +214,6 @@ export class OrderFlowMonitor {
     }
   }
 
-  setPreMoveWindow(sec) {
-    const n = Number(sec);
-    if (!n || n <= 0) return;
-    if (!this.preMove.windows.includes(n)) return;
-    this.preMove.primaryWindow = n;
-  }
-
   _onTrade(data) {
     // While REST backfill rebuilds the window, skip live prints (dedupe also guards overlap)
     if (this._backfilling) return;
@@ -278,8 +254,6 @@ export class OrderFlowMonitor {
       this.ready = false;
       this.book.clear();
       this.liquidity.clear();
-      this.battle.clear();
-      this.preMove.clear();
       this.feed.queueSync();
     }
   }
@@ -291,12 +265,6 @@ export class OrderFlowMonitor {
     const liqWindows = this.liquidity.ratios(liqRaw);
     const tick = this.book.tickSize;
     const priceChangeTicks5s = this.flow.priceChangeTicks(5, tick, now);
-    const priceChangeByWindow = Object.fromEntries(
-      this.config.windows.map((w) => [
-        w,
-        this.flow.priceChangeTicks(Math.min(w, 300), tick, now),
-      ])
-    );
 
     this.classifier.update({
       now,
@@ -306,64 +274,6 @@ export class OrderFlowMonitor {
       walls: this.walls,
       tickSize: tick,
       priceChangeTicks5s,
-      windowSec: 60,
-    });
-
-    const askLiq = this.book.totalNearLiquidity("ask", 20);
-    const bidLiq = this.book.totalNearLiquidity("bid", 20);
-    const absorptionByWindow = Object.fromEntries(
-      this.config.windows.map((w) => {
-        const flow = flowWindows[w] || {};
-        const liq = liqWindows[w] || {};
-        return [
-          w,
-          absorptionFlags({
-            aggressiveBuyVolume: flow.aggressiveBuyVolume || 0,
-            aggressiveSellVolume: flow.aggressiveSellVolume || 0,
-            askLiquidity: askLiq,
-            bidLiquidity: bidLiq,
-            askExec: liq.askExec || 0,
-            bidExec: liq.bidExec || 0,
-            askRefill: liq.askRefill || 0,
-            bidRefill: liq.bidRefill || 0,
-            priceChangeTicks: priceChangeByWindow[w] ?? priceChangeTicks5s,
-            config: this.config,
-          }),
-        ];
-      })
-    );
-
-    const priceNow = this.flow.lastPrice ?? this.book.midPrice();
-    const battlesByWindow = this.battle.buildAll({
-      windows: this.config.windows,
-      flowWindows,
-      liqWindows,
-      askLiquidity: askLiq,
-      bidLiquidity: bidLiq,
-      priceNow,
-      priceHistory: this.flow.priceHistory,
-      now,
-      bookReady: this.ready && this.feed.bookReady,
-      tradesReady: this.flow.trades.length > 0 || this.history.status === "done",
-    });
-
-    const lastTrade = this.flow.trades.length
-      ? this.flow.trades[this.flow.trades.length - 1]
-      : null;
-    const preMove = this.preMove.snapshot({
-      now,
-      priceNow,
-      priceHistory: this.flow.priceHistory,
-      flowWindows,
-      liqWindows,
-      book: this.book,
-      walls: this.walls,
-      tickSize: tick,
-      bookReady: this.ready && this.feed.bookReady,
-      tradesReady: this.flow.trades.length > 0 || this.history.status === "done",
-      staleBook: this.book.lastEventTime > 0 && now - this.book.lastEventTime > 2,
-      lastTradeAge: lastTrade ? now - lastTrade.timestamp : 999,
-      lastBookAge: this.book.lastEventTime ? now - this.book.lastEventTime : 999,
     });
 
     const bb = this.book.bestBid();
@@ -469,24 +379,16 @@ export class OrderFlowMonitor {
             totalVolume: st.totalVolume,
             buyRatio: st.buyRatio,
             sellRatio: st.sellRatio,
-            buyCount: st.buyCount || 0,
-            sellCount: st.sellCount || 0,
-            largeBuyVolume: st.largeBuyVolume || 0,
-            largeSellVolume: st.largeSellVolume || 0,
           },
         ])
       ),
       liqWindows,
-      bidLiquidity: bidLiq,
-      askLiquidity: askLiq,
+      bidLiquidity: this.book.totalNearLiquidity("bid", 20),
+      askLiquidity: this.book.totalNearLiquidity("ask", 20),
       bidLiquidityRange: this.book.nearPriceRange("bid", 20),
       askLiquidityRange: this.book.nearPriceRange("ask", 20),
       buyBattle: this.classifier.buyBattle,
       sellBattle: this.classifier.sellBattle,
-      absorption: this.classifier.absorption,
-      absorptionByWindow,
-      battlesByWindow,
-      preMove,
       state: this.classifier.currentState,
       pendingState: this.classifier.pendingState,
       largestBidWall: serializeWall(this.walls.largestBidWall),

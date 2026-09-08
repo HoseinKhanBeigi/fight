@@ -8,8 +8,6 @@ export const STATES = {
   SELLERS_WINNING: "SELLERS WINNING",
   ASK_ABSORPTION: "ASK ABSORPTION",
   BID_ABSORPTION: "BID ABSORPTION",
-  BUY_ABSORBED: "BUYERS ABSORBED",
-  SELL_ABSORBED: "SELLERS ABSORBED",
   TRUE_ASK_SWEEP: "TRUE ASK SWEEP",
   TRUE_BID_SWEEP: "TRUE BID SWEEP",
   ASK_WALL_PULLED: "ASK WALL PULLED",
@@ -24,86 +22,6 @@ export const STATES = {
   NEUTRAL: "NEUTRAL",
 };
 
-/**
- * Absorption: aggression hits resting liquidity, size is executed, book refills,
- * and price does not follow — passive side is absorbing the aggressor.
- */
-export function isAbsorption({
-  attackScore,
-  refillRatio,
-  passiveLiquidity,
-  executed,
-  priceChangeTicks,
-  config,
-}) {
-  const cfg = config;
-  const flat = Math.abs(priceChangeTicks) < cfg.priceResponseTicks;
-  return (
-    attackScore >= 0.5 &&
-    refillRatio >= cfg.minimumRefillRatio &&
-    passiveLiquidity > 0 &&
-    executed > cfg.minimumCancelVolume &&
-    flat
-  );
-}
-
-/** Four-side absorption flags + estimated absorbed volume for one fight window. */
-export function absorptionFlags({
-  aggressiveBuyVolume,
-  aggressiveSellVolume,
-  askLiquidity,
-  bidLiquidity,
-  askExec,
-  bidExec,
-  askRefill,
-  bidRefill,
-  priceChangeTicks,
-  config,
-}) {
-  const eps = config.epsilon || 1e-9;
-  const askAbsorb = isAbsorption({
-    attackScore: aggressiveBuyVolume / Math.max(askLiquidity, eps),
-    refillRatio: askRefill / Math.max(askExec, eps),
-    passiveLiquidity: askLiquidity,
-    executed: askExec,
-    priceChangeTicks,
-    config,
-  });
-  const bidAbsorb = isAbsorption({
-    attackScore: aggressiveSellVolume / Math.max(bidLiquidity, eps),
-    refillRatio: bidRefill / Math.max(bidExec, eps),
-    passiveLiquidity: bidLiquidity,
-    executed: bidExec,
-    priceChangeTicks,
-    config,
-  });
-
-  // Absorbed size ≈ aggression that was executed and restocked (est.)
-  const askAbsorbedVolume = Math.min(
-    Math.max(0, aggressiveBuyVolume || 0),
-    Math.max(0, askExec || 0),
-    Math.max(0, askRefill || 0)
-  );
-  const bidAbsorbedVolume = Math.min(
-    Math.max(0, aggressiveSellVolume || 0),
-    Math.max(0, bidExec || 0),
-    Math.max(0, bidRefill || 0)
-  );
-
-  return {
-    ask: askAbsorb,
-    bid: bidAbsorb,
-    aggressiveBuy: askAbsorb,
-    aggressiveSell: bidAbsorb,
-    /** Aggressive buys absorbed by asks (base qty) */
-    askAbsorbedVolume,
-    /** Aggressive sells absorbed by bids (base qty) */
-    bidAbsorbedVolume,
-    aggressiveBuyAbsorbedVolume: askAbsorbedVolume,
-    aggressiveSellAbsorbedVolume: bidAbsorbedVolume,
-  };
-}
-
 export class MarketClassifier {
   constructor(config) {
     this.config = config;
@@ -112,12 +30,6 @@ export class MarketClassifier {
     this.pendingSince = 0;
     this.buyBattle = this._emptyBattle("buy");
     this.sellBattle = this._emptyBattle("sell");
-    this.absorption = {
-      ask: false,
-      bid: false,
-      aggressiveBuy: false,
-      aggressiveSell: false,
-    };
   }
 
   _emptyBattle(kind) {
@@ -132,10 +44,7 @@ export class MarketClassifier {
       cancellationRatio: 0,
       refillRatio: 0,
       attackScore: 0,
-      absorbing: false,
       result: STATES.NEUTRAL,
-      passiveLabel: null,
-      aggressorLabel: null,
     };
   }
 
@@ -149,30 +58,21 @@ export class MarketClassifier {
       liqWindows,
       book,
       walls,
+      tickSize,
       priceChangeTicks5s,
-      windowSec = 60,
     } = ctx;
 
-    const w = windowSec;
-    const flow =
-      flowWindows[w] ||
-      flowWindows[60] ||
-      flowWindows[300] ||
-      Object.values(flowWindows)[0];
-    const liq =
-      liqWindows[w] ||
-      liqWindows[60] ||
-      liqWindows[300] ||
-      Object.values(liqWindows)[0];
+    const w = 60;
+    const flow = flowWindows[w] || flowWindows[300] || Object.values(flowWindows)[0];
+    const liq = liqWindows[w] || liqWindows[300] || Object.values(liqWindows)[0];
     if (!flow || !liq) return this.currentState;
 
     const eps = this.config.epsilon;
     const askLiq = book.totalNearLiquidity("ask", 10);
     const bidLiq = book.totalNearLiquidity("bid", 10);
-    const priceTicks = priceChangeTicks5s;
 
+    // Buy side battle: aggressive buyers vs passive sellers (asks)
     const buyRemoved = Math.max(liq.askRemoved, eps);
-    const buyRefillRatio = liq.askRefill / Math.max(liq.askExec, eps);
     this.buyBattle = {
       kind: "buy",
       aggressiveVolume: flow.aggressiveBuyVolume,
@@ -182,16 +82,13 @@ export class MarketClassifier {
       refill: liq.askRefill,
       executionRatio: liq.askExec / buyRemoved,
       cancellationRatio: liq.askCancel / buyRemoved,
-      refillRatio: buyRefillRatio,
+      refillRatio: liq.askRefill / Math.max(liq.askExec, eps),
       attackScore: flow.aggressiveBuyVolume / Math.max(askLiq, eps),
-      absorbing: false,
       result: STATES.NEUTRAL,
-      passiveLabel: null,
-      aggressorLabel: null,
     };
 
+    // Sell side battle: aggressive sellers vs passive buyers (bids)
     const sellRemoved = Math.max(liq.bidRemoved, eps);
-    const sellRefillRatio = liq.bidRefill / Math.max(liq.bidExec, eps);
     this.sellBattle = {
       kind: "sell",
       aggressiveVolume: flow.aggressiveSellVolume,
@@ -201,45 +98,20 @@ export class MarketClassifier {
       refill: liq.bidRefill,
       executionRatio: liq.bidExec / sellRemoved,
       cancellationRatio: liq.bidCancel / sellRemoved,
-      refillRatio: sellRefillRatio,
+      refillRatio: liq.bidRefill / Math.max(liq.bidExec, eps),
       attackScore: flow.aggressiveSellVolume / Math.max(bidLiq, eps),
-      absorbing: false,
       result: STATES.NEUTRAL,
-      passiveLabel: null,
-      aggressorLabel: null,
     };
 
-    this.absorption = absorptionFlags({
-      aggressiveBuyVolume: flow.aggressiveBuyVolume,
-      aggressiveSellVolume: flow.aggressiveSellVolume,
-      askLiquidity: askLiq,
-      bidLiquidity: bidLiq,
-      askExec: liq.askExec,
-      bidExec: liq.bidExec,
-      askRefill: liq.askRefill,
-      bidRefill: liq.bidRefill,
-      priceChangeTicks: priceTicks,
-      config: this.config,
-    });
-
-    this.buyBattle.absorbing = this.absorption.ask;
-    this.sellBattle.absorbing = this.absorption.bid;
-    if (this.absorption.ask) {
-      this.buyBattle.passiveLabel = STATES.ASK_ABSORPTION;
-      this.buyBattle.aggressorLabel = STATES.BUY_ABSORBED;
-    }
-    if (this.absorption.bid) {
-      this.sellBattle.passiveLabel = STATES.BID_ABSORPTION;
-      this.sellBattle.aggressorLabel = STATES.SELL_ABSORBED;
-    }
-
     this.buyBattle.result = this._classifySideBattle(this.buyBattle, "ask", {
-      priceChangeTicks5s: priceTicks,
+      priceChangeTicks5s,
       wall: walls.largestAskWall,
+      cancelImbalance: liq.cancelImbalance,
     });
     this.sellBattle.result = this._classifySideBattle(this.sellBattle, "bid", {
-      priceChangeTicks5s: priceTicks,
+      priceChangeTicks5s,
       wall: walls.largestBidWall,
+      cancelImbalance: liq.cancelImbalance,
     });
 
     const candidate = this._pickGlobalState({
@@ -248,7 +120,7 @@ export class MarketClassifier {
       liq,
       flow,
       walls,
-      priceChangeTicks5s: priceTicks,
+      priceChangeTicks5s,
     });
 
     this._persist(candidate, now);
@@ -259,24 +131,24 @@ export class MarketClassifier {
     const cfg = this.config;
     const up = priceChangeTicks5s >= cfg.priceResponseTicks;
     const down = priceChangeTicks5s <= -cfg.priceResponseTicks;
+    const flat = Math.abs(priceChangeTicks5s) < cfg.priceResponseTicks;
 
     if (wall && wall.status === "WALL_PULLED") {
       return passiveSide === "ask" ? STATES.ASK_WALL_PULLED : STATES.BID_WALL_PULLED;
     }
 
+    // Absorption: strong aggression + high refill + liquidity remains + weak price response
     if (
-      isAbsorption({
-        attackScore: battle.attackScore,
-        refillRatio: battle.refillRatio,
-        passiveLiquidity: battle.passiveLiquidity,
-        executed: battle.executed,
-        priceChangeTicks: priceChangeTicks5s,
-        config: cfg,
-      })
+      battle.attackScore >= 0.5 &&
+      battle.refillRatio >= cfg.minimumRefillRatio &&
+      battle.passiveLiquidity > 0 &&
+      battle.executed > cfg.minimumCancelVolume &&
+      flat
     ) {
       return passiveSide === "ask" ? STATES.ASK_ABSORPTION : STATES.BID_ABSORPTION;
     }
 
+    // True sweep
     if (
       battle.executionRatio >= cfg.sweepExecutionRatio &&
       battle.cancellationRatio < 1 - cfg.sweepExecutionRatio &&
@@ -286,6 +158,7 @@ export class MarketClassifier {
       return passiveSide === "ask" ? STATES.TRUE_ASK_SWEEP : STATES.TRUE_BID_SWEEP;
     }
 
+    // Pull + break
     if (
       battle.cancellationRatio >= cfg.pullCancelRatio &&
       ((passiveSide === "ask" && up) || (passiveSide === "bid" && down))
@@ -293,10 +166,7 @@ export class MarketClassifier {
       return passiveSide === "ask" ? STATES.ASK_PULLED_PATH : STATES.BID_PULLED_PATH;
     }
 
-    if (
-      battle.cancellationRatio >= cfg.cancelSurgeRatio &&
-      battle.cancelled > cfg.minimumCancelVolume
-    ) {
+    if (battle.cancellationRatio >= cfg.cancelSurgeRatio && battle.cancelled > cfg.minimumCancelVolume) {
       return passiveSide === "ask" ? STATES.ASK_CANCEL_SURGE : STATES.BID_CANCEL_SURGE;
     }
 
@@ -304,7 +174,10 @@ export class MarketClassifier {
   }
 
   _pickGlobalState({ buy, sell, liq, flow, walls, priceChangeTicks5s }) {
-    const priority = [buy.result, sell.result];
+    const priority = [
+      buy.result,
+      sell.result,
+    ];
 
     for (const s of [
       STATES.TRUE_ASK_SWEEP,
@@ -324,6 +197,7 @@ export class MarketClassifier {
     if (walls.largestAskWall?.status === "WALL_PULLED") return STATES.ASK_WALL_PULLED;
     if (walls.largestBidWall?.status === "WALL_PULLED") return STATES.BID_WALL_PULLED;
 
+    // Stacking dominance
     if (liq.askStack > liq.bidStack * 1.5 && liq.askStack > this.config.minimumStackVolume) {
       return STATES.ASK_STACKING;
     }
