@@ -11,6 +11,7 @@ import { MarketBattleEngine } from "./battle.js";
 import { FootprintAggregator } from "./footprint.js";
 import { PreMovePressureEngine } from "./microstructure/PreMovePressureEngine.js";
 import { fetchAggTradesHistory, lookbackForInterval } from "./history.js";
+import { MultiVenueLiquidity } from "./venues/MultiVenueLiquidity.js";
 
 function mergeWindows(a = [], b = []) {
   return [...new Set([...a, ...b])].sort((x, y) => x - y);
@@ -40,6 +41,9 @@ export class OrderFlowMonitor {
       intervalSec: this.config.footprintIntervalSec ?? 5,
       maxColumns: this.config.footprintColumns ?? 48,
       pricePrecision: this.config.footprintPricePrecision ?? 1,
+    });
+    this.multiVenue = new MultiVenueLiquidity({
+      levels: this.config.nearBookLevels || 20,
     });
     this.status = "starting";
     this.ready = false;
@@ -81,6 +85,7 @@ export class OrderFlowMonitor {
 
   async start() {
     await this.feed.start();
+    await this.multiVenue.start(this.config.symbol);
     void this.backfillHistory();
     this._startDepthLadder();
   }
@@ -92,6 +97,7 @@ export class OrderFlowMonitor {
       this._depthLadderTimer = null;
     }
     this.feed.stop();
+    void this.multiVenue.stop();
   }
 
   _startDepthLadder() {
@@ -313,6 +319,8 @@ export class OrderFlowMonitor {
     const bidLiq = this.book.totalNearLiquidity("bid", 20);
     const nearAskLiq = this.book.totalNearLiquidity("ask", 3);
     const nearBidLiq = this.book.totalNearLiquidity("bid", 3);
+    this.multiVenue.syncBinance(this.book);
+    const multiVenue = this.multiVenue.snapshot(now);
     const bookReady = this.ready && this.feed.bookReady;
     const staleBook = this.book.lastEventTime > 0 && now - this.book.lastEventTime > 2;
     const tradesReady = this.flow.trades.length > 0;
@@ -488,6 +496,7 @@ export class OrderFlowMonitor {
       liqWindows,
       bidLiquidity: bidLiq,
       askLiquidity: askLiq,
+      multiVenue,
       bidLiquidityRange: this.book.nearPriceRange("bid", 20),
       askLiquidityRange: this.book.nearPriceRange("ask", 20),
       buyBattle: this.classifier.buyBattle,

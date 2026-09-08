@@ -2477,3 +2477,127 @@ select {
   .lp-grid { grid-template-columns: 1fr; }
   .lp-windows { margin-left: 0; }
 }
+
+/* ── MULTI-VENUE LIQUIDITY SUM ── */
+.mv-panel {
+  grid-column: 1 / -1;
+  border: 1px solid var(--border-1);
+  border-radius: var(--radius);
+  background: var(--bg-2);
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.mv-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px 14px;
+}
+
+.mv-title {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-1);
+}
+
+.mv-sub {
+  font-size: 10px;
+  color: var(--text-3);
+  font-family: var(--mono);
+}
+
+.mv-totals {
+  margin-left: auto;
+  display: flex;
+  gap: 14px;
+}
+
+.mv-total {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  font-family: var(--mono);
+}
+
+.mv-total span {
+  font-size: 9px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-3);
+}
+
+.mv-total b {
+  font-size: 16px;
+  font-weight: 650;
+  color: var(--text-0);
+}
+
+.mv-total.ask b { color: var(--sell); }
+.mv-total.bid b { color: var(--buy); }
+
+.mv-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.mv-venue {
+  border: 1px solid var(--border-1);
+  border-radius: var(--radius);
+  background: var(--bg-3);
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.mv-venue.live { border-color: rgba(61, 154, 106, 0.35); }
+.mv-venue.stale,
+.mv-venue.wait { opacity: 0.72; }
+.mv-venue.unsupported { opacity: 0.45; }
+
+.mv-name {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-1);
+}
+
+.mv-side {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  font-family: var(--mono);
+  font-size: 11px;
+}
+
+.mv-side span { color: var(--text-3); }
+.mv-side b { color: var(--text-0); font-weight: 600; }
+
+.mv-st {
+  font-size: 9px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-3);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.mv-note {
+  font-size: 10px;
+  color: var(--text-3);
+  line-height: 1.35;
+}
+
+@media (max-width: 900px) {
+  .mv-grid { grid-template-columns: 1fr 1fr; }
+  .mv-totals { margin-left: 0; width: 100%; }
+}
