@@ -9,20 +9,33 @@ import { WallTracker } from "./walls.js";
 import { MarketClassifier, absorptionFlags } from "./classifier.js";
 import { MarketBattleEngine } from "./battle.js";
 import { FootprintAggregator } from "./footprint.js";
+import { PreMovePressureEngine } from "./microstructure/PreMovePressureEngine.js";
 import { fetchAggTradesHistory, lookbackForInterval } from "./history.js";
+
+function mergeWindows(a = [], b = []) {
+  return [...new Set([...a, ...b])].sort((x, y) => x - y);
+}
 
 export class OrderFlowMonitor {
   constructor(config = CONFIG) {
     this.config = { ...CONFIG, ...config };
+    this.trackingWindows = mergeWindows(
+      this.config.windows,
+      this.config.preMove?.windows
+    );
     this.book = new LocalOrderBook(this.config.nearBookLevels);
     this.flow = new AggressiveFlowTracker(
-      this.config.windows,
+      this.trackingWindows,
       this.config.tradeBookMatchToleranceMs
     );
-    this.liquidity = new LiquidityEngine(this.config);
+    this.liquidity = new LiquidityEngine({
+      ...this.config,
+      windows: this.trackingWindows,
+    });
     this.walls = new WallTracker(this.config);
     this.classifier = new MarketClassifier(this.config);
     this.battle = new MarketBattleEngine(this.config);
+    this.preMove = new PreMovePressureEngine(this.config);
     this.footprint = new FootprintAggregator({
       intervalSec: this.config.footprintIntervalSec ?? 5,
       maxColumns: this.config.footprintColumns ?? 48,
@@ -57,6 +70,7 @@ export class OrderFlowMonitor {
         this.book.clear();
         this.liquidity.clear();
         this.battle.clear();
+        this.preMove.clear();
       },
       onStatus: (msg) => {
         // Don't clobber an active backfill status line
@@ -217,6 +231,13 @@ export class OrderFlowMonitor {
     }
   }
 
+  setPreMoveWindow(sec) {
+    const n = Number(sec);
+    if (!n || n <= 0) return;
+    if (!this.preMove.windows.includes(n)) return;
+    this.preMove.primaryWindow = n;
+  }
+
   _onTrade(data) {
     // While REST backfill rebuilds the window, skip live prints (dedupe also guards overlap)
     if (this._backfilling) return;
@@ -258,6 +279,7 @@ export class OrderFlowMonitor {
       this.book.clear();
       this.liquidity.clear();
       this.battle.clear();
+      this.preMove.clear();
       this.feed.queueSync();
     }
   }
@@ -323,6 +345,25 @@ export class OrderFlowMonitor {
       now,
       bookReady: this.ready && this.feed.bookReady,
       tradesReady: this.flow.trades.length > 0 || this.history.status === "done",
+    });
+
+    const lastTrade = this.flow.trades.length
+      ? this.flow.trades[this.flow.trades.length - 1]
+      : null;
+    const preMove = this.preMove.snapshot({
+      now,
+      priceNow,
+      priceHistory: this.flow.priceHistory,
+      flowWindows,
+      liqWindows,
+      book: this.book,
+      walls: this.walls,
+      tickSize: tick,
+      bookReady: this.ready && this.feed.bookReady,
+      tradesReady: this.flow.trades.length > 0 || this.history.status === "done",
+      staleBook: this.book.lastEventTime > 0 && now - this.book.lastEventTime > 2,
+      lastTradeAge: lastTrade ? now - lastTrade.timestamp : 999,
+      lastBookAge: this.book.lastEventTime ? now - this.book.lastEventTime : 999,
     });
 
     const bb = this.book.bestBid();
@@ -428,6 +469,10 @@ export class OrderFlowMonitor {
             totalVolume: st.totalVolume,
             buyRatio: st.buyRatio,
             sellRatio: st.sellRatio,
+            buyCount: st.buyCount || 0,
+            sellCount: st.sellCount || 0,
+            largeBuyVolume: st.largeBuyVolume || 0,
+            largeSellVolume: st.largeSellVolume || 0,
           },
         ])
       ),
@@ -441,6 +486,7 @@ export class OrderFlowMonitor {
       absorption: this.classifier.absorption,
       absorptionByWindow,
       battlesByWindow,
+      preMove,
       state: this.classifier.currentState,
       pendingState: this.classifier.pendingState,
       largestBidWall: serializeWall(this.walls.largestBidWall),

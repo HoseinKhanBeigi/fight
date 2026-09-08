@@ -279,6 +279,10 @@ wss.on("connection", (ws) => {
     if (msg.type === "setFootprintInterval" && monitor && msg.intervalSec) {
       monitor.setFootprintInterval(msg.intervalSec);
     }
+
+    if (msg.type === "setPreMoveWindow" && monitor && msg.windowSec) {
+      monitor.setPreMoveWindow(msg.windowSec);
+    }
   });
 });
 

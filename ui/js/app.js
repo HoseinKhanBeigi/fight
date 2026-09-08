@@ -34,9 +34,19 @@ const INTERVALS = [
   { sec: 2700, label: "45m" },
 ];
 
+const PREMOVE_INTERVALS = [
+  { sec: 5, label: "5s" },
+  { sec: 10, label: "10s" },
+  { sec: 30, label: "30s" },
+  { sec: 60, label: "1m" },
+  { sec: 300, label: "5m" },
+  { sec: 900, label: "15m" },
+];
+
 const ui = {
   symbol: "BTCUSDT",
   interval: 60,
+  preMoveInterval: 10,
   last: null,
   ticker24h: null,
   headerReady: false,
@@ -510,6 +520,288 @@ function sidePresenceShape(s, w, px) {
     </div>`;
 }
 
+function signedNum(n, d = 0) {
+  if (n == null || Number.isNaN(Number(n))) return "—";
+  const x = Number(n);
+  const v = d ? x.toFixed(d) : String(Math.round(x));
+  return x > 0 ? `+${v}` : v;
+}
+
+function trendClass(t = "") {
+  const s = String(t).toUpperCase();
+  if (s.includes("RISING")) return "rise";
+  if (s.includes("FALLING")) return "fall";
+  return "";
+}
+
+function premoveStateClass(state = "") {
+  const s = String(state).toUpperCase();
+  if (s.includes("LOW_CONFIDENCE") || s === "NO_PRESSURE" || s === "BALANCED") return "low";
+  if (s.includes("TRANSIENT") || s.includes("COMPRESSION") || s.includes("TWO_SIDED")) return "warn";
+  if (s.includes("DOWNSIDE") || s.includes("LOWER") || s.includes("DOWN_PRESSURE")) return "down";
+  if (s.includes("UPSIDE") || s.includes("UPPER") || s.includes("UP_PRESSURE")) return "up";
+  return "low";
+}
+
+function tfLabel(sec) {
+  return PREMOVE_INTERVALS.find((it) => it.sec === Number(sec))?.label || `${sec}s`;
+}
+
+function sparkline(history) {
+  const rows = history || [];
+  if (rows.length < 2) {
+    return `<svg class="premove-spark" viewBox="0 0 240 56" preserveAspectRatio="none"></svg>`;
+  }
+  const w = 240;
+  const h = 56;
+  const n = rows.length;
+  const path = (key, color) => {
+    const pts = rows
+      .map((r, i) => {
+        const x = (i / (n - 1)) * w;
+        const y = h - (Math.max(0, Math.min(100, Number(r[key]) || 0)) / 100) * (h - 6) - 3;
+        return `${x.toFixed(1)},${y.toFixed(1)}`;
+      })
+      .join(" ");
+    return `<polyline fill="none" stroke="${color}" stroke-width="1.4" points="${pts}" />`;
+  };
+  return `<svg class="premove-spark" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none" aria-label="Pressure history">
+    ${path("down", "var(--sell)")}
+    ${path("up", "var(--buy)")}
+  </svg>`;
+}
+
+function contribLine(contrib, keys) {
+  if (!contrib) return "";
+  const items = (keys || Object.keys(contrib))
+    .map((k) => {
+      const v = contrib[k];
+      if (v == null) return "";
+      const cls = v >= 0 ? "pos" : "neg";
+      return `<span>${k.replace(/([A-Z])/g, " $1").trim()} <b class="${cls}">${signedNum(v, 1)}</b></span>`;
+    })
+    .filter(Boolean);
+  return `<div class="premove-contrib">${items.join("")}</div>`;
+}
+
+function breakRows(pairs) {
+  return `<div class="pm-rows">${pairs
+    .map(([k, v]) => `<div class="pm-row"><span>${k}</span><b>${fmtScore(v)}</b></div>`)
+    .join("")}</div>`;
+}
+
+function renderPreMove(s) {
+  const pm = s.preMove;
+  if (!pm?.current) {
+    return `<div class="premove"><div class="premove-title">Pre-move pressure</div><div class="fight-hint">Waiting for pre-move engine…</div></div>`;
+  }
+  const c = pm.current;
+  const w = ui.preMoveInterval;
+  const slice = pm.byWindow?.[w] || pm.byWindow?.[String(w)] || c;
+  const confLow = (c.confidence ?? 100) < 40;
+  const imb = slice.pressureImbalance ?? c.pressureImbalance ?? 0;
+  const imbPct = Math.max(0, Math.min(50, Math.abs(imb) / 2));
+  const bd = c.breakdown || { upside: {}, downside: {} };
+  const confirm = pm.confirmation || {};
+  const align = pm.alignment || {};
+  const why = (c.why || []).map((line) => `<li>${line}</li>`).join("");
+
+  const tfChips = (pm.windows || PREMOVE_INTERVALS.map((x) => x.sec))
+    .map((sec) => {
+      const row = pm.byWindow?.[sec] || pm.byWindow?.[String(sec)];
+      if (!row) return "";
+      const d = (row.upPressure || 0) - (row.downPressure || 0);
+      const cls = d >= 10 ? "up" : d <= -10 ? "down" : "";
+      return `<span class="tf-chip ${cls}">${tfLabel(sec)} ${d >= 10 ? "UP" : d <= -10 ? "DN" : "—"} ${row.upPressure}/${row.downPressure}</span>`;
+    })
+    .join("");
+
+  const bt = pm.backtest;
+  let btHtml = "";
+  if (bt?.states) {
+    const focus = [
+      "STRONG_UPSIDE_PRESSURE",
+      "STRONG_DOWNSIDE_PRESSURE",
+      "UPSIDE_PRESSURE_BUILDING",
+      "DOWNSIDE_PRESSURE_BUILDING",
+      "UPSIDE_LIQUIDITY_VACUUM_FORMING",
+      "DOWNSIDE_LIQUIDITY_VACUUM_FORMING",
+    ];
+    const h = 10;
+    const rows = focus
+      .map((st) => {
+        const rec = bt.states[st]?.[h] || bt.states[st]?.["10"];
+        if (!rec?.n) return "";
+        return `<tr>
+          <td>${prettyState(st)}</td>
+          <td>${rec.n}</td>
+          <td>${Math.round((rec.hitRate || 0) * 100)}%</td>
+          <td>${signedNum(rec.avgReturnBps, 1)}</td>
+          <td>${signedNum(rec.medianReturnBps, 1)}</td>
+          <td>${(rec.maeBps ?? 0).toFixed(1)}</td>
+          <td>${(rec.mfeBps ?? 0).toFixed(1)}</td>
+          <td>${Math.round((rec.falsePositive || 0) * 100)}%</td>
+        </tr>`;
+      })
+      .join("");
+    btHtml = rows
+      ? `<details>
+        <summary>Backtest lab · 10s forward (completed ${bt.completed || 0})</summary>
+        <table class="pm-table">
+          <thead><tr><th>State</th><th>n</th><th>Hit</th><th>Avg bps</th><th>Med bps</th><th>MAE</th><th>MFE</th><th>FP</th></tr></thead>
+          <tbody>${rows}</tbody>
+        </table>
+      </details>`
+      : "";
+  }
+
+  const cal = pm.calibration;
+  const calRows = cal
+    ? Object.entries(cal.normalized || {})
+        .map(
+          ([k, v]) =>
+            `<tr><td>${k}</td><td>${Math.round(v)}</td><td>${
+              cal.percentiles?.[k] == null ? "—" : Math.round(cal.percentiles[k] * 100) + "th"
+            }</td><td>${cal.contributions?.up?.[k] ?? cal.contributions?.down?.[k] ?? "—"}</td></tr>`
+        )
+        .join("")
+    : "";
+
+  return `
+    <div class="premove">
+      <div class="premove-head">
+        <div class="premove-title">Pre-move pressure</div>
+        <div class="premove-state ${premoveStateClass(c.state)}">${prettyState(c.state)}</div>
+        <div class="premove-tfs" id="pm-iv">
+          ${PREMOVE_INTERVALS.map(
+            (it) =>
+              `<button type="button" data-n="${it.sec}" class="${
+                it.sec === w ? "active" : ""
+              }">${it.label}</button>`
+          ).join("")}
+        </div>
+        <div class="premove-conf ${confLow ? "low" : ""}">
+          Confidence ${fmtScore(c.confidence)}${confLow ? " · LOW CONFIDENCE" : ""}
+        </div>
+      </div>
+      <div class="premove-grid">
+        <div class="premove-col up">
+          <div class="pm-kicker">Up pressure</div>
+          <div class="pm-score">${slice.upPressure ?? "—"} <small>/ 100</small></div>
+          <div class="pm-bar"><i style="width:${clampScore(slice.upPressure)}%"></i></div>
+          <div class="pm-rows">
+            <div class="pm-row"><span>Trend</span><b class="${trendClass(slice.upTrend)}">${prettyState(slice.upTrend || c.upTrend)}</b></div>
+            <div class="pm-row"><span>Velocity</span><b class="${trendClass(slice.upTrend)}">${signedNum(slice.upVelocity)} / ${c.velocityLookbackSec || 10}s</b></div>
+            <div class="pm-row"><span>Acceleration</span><b>${signedNum(c.upAcceleration)}</b></div>
+            <div class="pm-row"><span>Persistence</span><b>${fmtScore(c.upPersistence?.persistence)} · ${prettyState(c.upPersistence?.label)}</b></div>
+          </div>
+        </div>
+        <div class="premove-col down">
+          <div class="pm-kicker">Down pressure</div>
+          <div class="pm-score">${slice.downPressure ?? "—"} <small>/ 100</small></div>
+          <div class="pm-bar"><i style="width:${clampScore(slice.downPressure)}%"></i></div>
+          <div class="pm-rows">
+            <div class="pm-row"><span>Trend</span><b class="${trendClass(slice.downTrend)}">${prettyState(slice.downTrend || c.downTrend)}</b></div>
+            <div class="pm-row"><span>Velocity</span><b class="${trendClass(slice.downTrend)}">${signedNum(slice.downVelocity)} / ${c.velocityLookbackSec || 10}s</b></div>
+            <div class="pm-row"><span>Acceleration</span><b>${signedNum(c.downAcceleration)}</b></div>
+            <div class="pm-row"><span>Persistence</span><b>${fmtScore(c.downPersistence?.persistence)} · ${prettyState(c.downPersistence?.label)}</b></div>
+          </div>
+        </div>
+        <div class="premove-imb">
+          <div class="pm-kicker">Pressure imbalance</div>
+          <div class="imb-val ${imb > 4 ? "up" : imb < -4 ? "down" : ""}">${signedNum(imb)}</div>
+          <div class="imb-track">
+            <span class="mid"></span>
+            ${
+              imb >= 0
+                ? `<i class="up" style="width:${imbPct}%"></i>`
+                : `<i class="down" style="width:${imbPct}%"></i>`
+            }
+          </div>
+          <div class="pm-row"><span>Norm</span><b>${signedNum((c.normalizedImbalance || 0) * 100, 0)}%</b></div>
+          <div class="pm-row"><span>Align</span><b>${align.score ?? "—"}/100</b></div>
+        </div>
+      </div>
+      <div class="premove-align">
+        <span>${prettyState(align.label || "MIXED")}</span>
+        ${tfChips}
+      </div>
+      ${sparkline(pm.history)}
+      <div class="premove-break">
+        <div>
+          <div class="pm-break-title">Upside</div>
+          ${breakRows([
+            ["Attack power", bd.upside.attackPower],
+            ["Book preparation", bd.upside.bookPreparation],
+            ["Ask defense weakening", bd.upside.askDefenseWeakening],
+            ["Ask consumption", bd.upside.askConsumption],
+            ["Ask withdrawal", bd.upside.askWithdrawal],
+            ["Ask replenishment", bd.upside.askReplenishment],
+            ["Ask survival", bd.upside.askSurvival],
+          ])}
+          ${contribLine(c.upContributions, [
+            "BuyAggressionPower",
+            "BuyExecutionVelocity",
+            "AskCancellation",
+            "AskWithdrawal",
+            "AskConsumption",
+            "AskDepthThinness",
+            "AskReplenishment",
+            "AskSurvival",
+          ])}
+        </div>
+        <div>
+          <div class="pm-break-title">Downside</div>
+          ${breakRows([
+            ["Attack power", bd.downside.attackPower],
+            ["Book preparation", bd.downside.bookPreparation],
+            ["Bid defense weakening", bd.downside.bidDefenseWeakening],
+            ["Bid consumption", bd.downside.bidConsumption],
+            ["Bid withdrawal", bd.downside.bidWithdrawal],
+            ["Bid replenishment", bd.downside.bidReplenishment],
+            ["Bid survival", bd.downside.bidSurvival],
+          ])}
+          ${contribLine(c.downContributions, [
+            "SellAggressionPower",
+            "SellExecutionVelocity",
+            "BidCancellation",
+            "BidWithdrawal",
+            "BidConsumption",
+            "BidDepthThinness",
+            "BidReplenishment",
+            "BidSurvival",
+          ])}
+        </div>
+      </div>
+      <div class="premove-why">
+        <div class="pm-kicker">Why</div>
+        <ul>${why || "<li>Waiting for enough history to explain this state.</li>"}</ul>
+      </div>
+      <div class="premove-confirm">
+        <span>Price response <b>${prettyState(confirm.state || "PENDING")}</b></span>
+        <span>${confirm.why || ""}</span>
+        ${
+          confirm.displacementBps != null
+            ? `<span>${signedNum(confirm.displacementBps, 1)} bps · ${confirm.horizonSec || 0}s</span>`
+            : ""
+        }
+      </div>
+      ${btHtml}
+      ${
+        calRows
+          ? `<details>
+          <summary>Calibration · ${prettyState(cal.regime)} vol · window ${tfLabel(cal.window)}</summary>
+          <table class="pm-table">
+            <thead><tr><th>Feature</th><th>Norm</th><th>Percentile</th><th>Contrib</th></tr></thead>
+            <tbody>${calRows}</tbody>
+          </table>
+        </details>`
+          : ""
+      }
+    </div>
+  `;
+}
+
 function renderFight(s) {
   const px = s.price ?? s.bestBid ?? s.bestAsk;
   const w = ui.interval;
@@ -521,17 +813,21 @@ function renderFight(s) {
   // Prefer battle-engine cards; fallback message if server not yet upgraded
   if (!buy && !sell) {
     $("fight").innerHTML = `
+      ${renderPreMove(s)}
       <div class="fight-card buy"><div class="fight-hint">Waiting for battle engine… restart the server if this persists.</div></div>
       <div class="fight-card sell"><div class="fight-hint">Waiting for battle engine…</div></div>
     `;
+    bindPreMoveButtons();
     return;
   }
 
   $("fight").innerHTML = `
+    ${renderPreMove(s)}
     ${sidePresenceShape(s, w, px)}
     ${renderBattleCard(buy, px, "buy", "Aggressive buyers", "Passive asks", tf)}
     ${renderBattleCard(sell, px, "sell", "Aggressive sellers", "Passive bids", tf)}
   `;
+  bindPreMoveButtons();
 
   // Mirror primary interaction state into header when available
   const lead = buy?.state || sell?.state;
@@ -541,10 +837,23 @@ function renderFight(s) {
   }
 }
 
+function bindPreMoveButtons() {
+  $("pm-iv")?.querySelectorAll("button").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const n = Number(btn.dataset.n);
+      if (!n || n === ui.preMoveInterval) return;
+      ui.preMoveInterval = n;
+      send({ type: "setPreMoveWindow", windowSec: n });
+      if (ui.last) renderFight(ui.last);
+    });
+  });
+}
+
 function renderFooter() {
   $("footer").innerHTML = `
     <div class="note" style="grid-column:1/-1">
       Attack = aggressive trade flow · Defense = passive book behavior · Response = price efficiency + absorption score.
+      Pre-move pressure uses book preparation, attack, and defense weakening only — never future price.
       Consumed ≠ Aggressive (aggressive is already executed tape; consumed is resting liquidity removed by trades).
       Surges use rolling percentiles, not raw dollar cutoffs.
     </div>

@@ -1449,3 +1449,374 @@ select {
     grid-template-columns: 1fr;
   }
 }
+
+/* ── PRE-MOVE PRESSURE ── */
+.premove {
+  grid-column: 1 / -1;
+  border: 1px solid var(--border-1);
+  border-radius: var(--radius);
+  background: var(--bg-2);
+  padding: 12px 14px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.premove-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 16px;
+}
+
+.premove-title {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-1);
+}
+
+.premove-state {
+  font-size: 13px;
+  font-weight: 650;
+  letter-spacing: 0.05em;
+  padding: 3px 8px;
+  border-radius: var(--radius);
+  background: var(--bg-3);
+}
+
+.premove-state.up {
+  color: var(--buy);
+  background: var(--buy-dim);
+}
+.premove-state.down {
+  color: var(--sell);
+  background: var(--sell-dim);
+}
+.premove-state.warn {
+  color: var(--warn);
+  background: rgba(201, 162, 39, 0.12);
+}
+.premove-state.low {
+  color: var(--text-3);
+}
+
+.premove-conf {
+  margin-left: auto;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text-2);
+}
+.premove-conf.low {
+  color: var(--warn);
+}
+
+.premove-tfs {
+  display: flex;
+  gap: 4px;
+}
+.premove-tfs button {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  padding: 3px 7px;
+  border: 1px solid var(--border-1);
+  background: var(--bg-3);
+  color: var(--text-2);
+  border-radius: 3px;
+  cursor: pointer;
+}
+.premove-tfs button.active {
+  color: var(--text-0);
+  border-color: var(--border-2);
+  background: var(--bg-4);
+}
+
+.premove-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr 180px;
+  gap: 12px;
+}
+
+.premove-col {
+  border: 1px solid var(--border-1);
+  border-radius: var(--radius);
+  background: var(--bg-3);
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.premove-col.up .pm-score {
+  color: var(--buy);
+}
+.premove-col.down .pm-score {
+  color: var(--sell);
+}
+
+.pm-kicker {
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-3);
+}
+
+.pm-score {
+  font-family: var(--mono);
+  font-size: 28px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
+
+.pm-score small {
+  font-size: 12px;
+  color: var(--text-3);
+  font-weight: 500;
+}
+
+.pm-bar {
+  height: 6px;
+  background: var(--bg-4);
+  border-radius: 2px;
+  overflow: hidden;
+}
+.pm-bar i {
+  display: block;
+  height: 100%;
+  border-radius: 2px;
+}
+.premove-col.up .pm-bar i {
+  background: var(--buy);
+}
+.premove-col.down .pm-bar i {
+  background: var(--sell);
+}
+
+.pm-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.pm-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 11px;
+  font-family: var(--mono);
+}
+.pm-row span {
+  color: var(--text-3);
+}
+.pm-row b {
+  color: var(--text-0);
+  font-weight: 600;
+}
+.pm-row b.rise {
+  color: var(--buy);
+}
+.pm-row b.fall {
+  color: var(--sell);
+}
+
+.premove-imb {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 8px;
+  border: 1px solid var(--border-1);
+  border-radius: var(--radius);
+  background: var(--bg-3);
+  padding: 10px 12px;
+}
+.premove-imb .pm-kicker {
+  margin-bottom: 2px;
+}
+.imb-val {
+  font-family: var(--mono);
+  font-size: 22px;
+  font-weight: 600;
+}
+.imb-val.up {
+  color: var(--buy);
+}
+.imb-val.down {
+  color: var(--sell);
+}
+.imb-track {
+  height: 8px;
+  background: var(--bg-4);
+  border-radius: 2px;
+  position: relative;
+  overflow: hidden;
+}
+.imb-track .mid {
+  position: absolute;
+  left: 50%;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: var(--border-2);
+}
+.imb-track i {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  height: 100%;
+}
+.imb-track i.up {
+  left: 50%;
+  background: var(--buy);
+}
+.imb-track i.down {
+  right: 50%;
+  background: var(--sell);
+}
+
+.premove-align {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 10px;
+  align-items: center;
+  font-size: 11px;
+  color: var(--text-2);
+}
+.tf-chip {
+  font-family: var(--mono);
+  font-size: 10px;
+  padding: 2px 6px;
+  border-radius: 3px;
+  background: var(--bg-3);
+  border: 1px solid var(--border-1);
+  color: var(--text-2);
+}
+.tf-chip.up {
+  color: var(--buy);
+  border-color: color-mix(in srgb, var(--buy) 40%, var(--border-1));
+}
+.tf-chip.down {
+  color: var(--sell);
+  border-color: color-mix(in srgb, var(--sell) 40%, var(--border-1));
+}
+
+.premove-break {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+.pm-break-title {
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-3);
+  margin-bottom: 6px;
+}
+
+.premove-why {
+  border-top: 1px solid var(--border-1);
+  padding-top: 8px;
+}
+.premove-why ul {
+  margin: 4px 0 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.premove-why li {
+  color: var(--text-2);
+  font-size: 11.5px;
+  line-height: 1.4;
+}
+.premove-why li::before {
+  content: "– ";
+  color: var(--text-3);
+}
+
+.premove-contrib {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 12px;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text-2);
+}
+.premove-contrib b.pos {
+  color: var(--buy);
+}
+.premove-contrib b.neg {
+  color: var(--sell);
+}
+
+.premove-spark {
+  width: 100%;
+  height: 56px;
+  display: block;
+  background: var(--bg-3);
+  border-radius: var(--radius);
+  border: 1px solid var(--border-1);
+}
+
+.premove-confirm {
+  font-size: 11px;
+  color: var(--text-2);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+  align-items: baseline;
+}
+.premove-confirm b {
+  color: var(--text-0);
+}
+
+.premove details {
+  font-size: 11px;
+  color: var(--text-2);
+}
+.premove details summary {
+  cursor: pointer;
+  color: var(--text-3);
+  font-size: 10px;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+.pm-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 8px;
+  font-family: var(--mono);
+  font-size: 11px;
+}
+.pm-table th,
+.pm-table td {
+  text-align: right;
+  padding: 3px 6px;
+  border-bottom: 1px solid var(--border-0);
+}
+.pm-table th:first-child,
+.pm-table td:first-child {
+  text-align: left;
+}
+.pm-table th {
+  color: var(--text-3);
+  font-weight: 500;
+}
+
+@media (max-width: 1100px) {
+  .premove-grid {
+    grid-template-columns: 1fr 1fr;
+  }
+  .premove-imb {
+    grid-column: 1 / -1;
+  }
+}
+@media (max-width: 700px) {
+  .premove-grid,
+  .premove-break {
+    grid-template-columns: 1fr;
+  }
+}
