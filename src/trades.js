@@ -49,6 +49,11 @@ export class WindowStats {
     const t = this.totalVolume;
     return t > 0 ? this.aggressiveSellVolume / t : 0;
   }
+
+  /** Window CVD contribution equals net delta over the window. */
+  get cvdDelta() {
+    return this.netDelta;
+  }
 }
 
 function quantileSorted(sorted, q) {
@@ -71,6 +76,8 @@ export class AggressiveFlowTracker {
     /** @type {Map<number, {ts:number, qty:number}[]>} */
     this.sellsByPrice = new Map();
     this.lastPrice = null;
+    /** Cumulative volume delta (buy − sell). Window CVD change = WindowStats.netDelta. */
+    this.cvd = 0;
     /** @type {{ts:number, price:number}[]} */
     this.priceHistory = [];
   }
@@ -81,6 +88,7 @@ export class AggressiveFlowTracker {
     this.buysByPrice.clear();
     this.sellsByPrice.clear();
     this.lastPrice = null;
+    this.cvd = 0;
     this.priceHistory = [];
   }
 
@@ -96,6 +104,7 @@ export class AggressiveFlowTracker {
 
     this.trades.push(trade);
     this.lastPrice = trade.price;
+    this.cvd += trade.isAggressiveBuy ? trade.quantity : -trade.quantity;
     this.priceHistory.push({ ts: trade.timestamp, price: trade.price });
     if (this.priceHistory.length > 5000) this.priceHistory.shift();
 

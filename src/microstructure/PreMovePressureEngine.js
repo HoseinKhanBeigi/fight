@@ -80,6 +80,42 @@ function wallApproachScore(wall, mid, tick, now) {
   return score100((0.4 * cancel + 0.3 * dep + 0.3 * pulled) * proximity * (ageOk ? 1 : 0.5));
 }
 
+function wallPersistenceRaw(wall, now) {
+  if (!wall || !wall.active) return 0;
+  const lifeSec = Math.max(0, now - (wall.createdAt || now));
+  const lifeScore = clamp01(lifeSec / 30);
+  const sizeHold = clamp01(safeDiv(wall.currentSize || 0, Math.max(wall.initialSize || 0, EPS)));
+  const cancelPenalty = clamp01(wall.cancelRatio || 0);
+  const depPenalty = clamp01(wall.depletionRatio || 0);
+  return clamp01(0.45 * lifeScore + 0.35 * sizeHold + 0.2 * (1 - Math.max(cancelPenalty, depPenalty)));
+}
+
+function averageDepthOverWindow(depthHist, now, windowSec) {
+  if (!depthHist?.length) {
+    return { askDepth: null, bidDepth: null, nearAsk: null, nearBid: null, samples: 0 };
+  }
+  const t0 = now - windowSec;
+  const askD = [];
+  const bidD = [];
+  const nearA = [];
+  const nearB = [];
+  for (const row of depthHist) {
+    if (row.t < t0 || row.t > now) continue;
+    if (Number.isFinite(row.askDepth)) askD.push(row.askDepth);
+    if (Number.isFinite(row.bidDepth)) bidD.push(row.bidDepth);
+    if (Number.isFinite(row.nearAsk)) nearA.push(row.nearAsk);
+    if (Number.isFinite(row.nearBid)) nearB.push(row.nearBid);
+  }
+  const mean = (arr) => (arr.length ? arr.reduce((a, b) => a + b, 0) / arr.length : null);
+  return {
+    askDepth: mean(askD),
+    bidDepth: mean(bidD),
+    nearAsk: mean(nearA),
+    nearBid: mean(nearB),
+    samples: askD.length,
+  };
+}
+
 export class PreMovePressureEngine {
   constructor(config = CONFIG) {
     const pm = { ...CONFIG.preMove, ...(config.preMove || {}) };
@@ -135,10 +171,14 @@ export class PreMovePressureEngine {
       askDepth: depth.askDepth,
       bidDepth: depth.bidDepth,
     });
-    while (this.depthHist.length && now - this.depthHist[0].t > 120) this.depthHist.shift();
+    const maxAge = Math.max(...this.windows, 900) + 10;
+    while (this.depthHist.length && now - this.depthHist[0].t > maxAge) this.depthHist.shift();
 
     const regime = this._regime(ctx.priceHistory, now);
     const approach = this._approach(now, ctx.priceNow, ctx.liqWindows);
+    const tradesReady = !!ctx.tradesReady;
+    const bookReady = !!ctx.bookReady;
+    const staleBook = !!ctx.staleBook || !bookReady;
 
     /** @type {Record<number, object>} */
     const byWindow = {};
@@ -154,6 +194,9 @@ export class PreMovePressureEngine {
         walls: ctx.walls,
         tick: ctx.tickSize,
         priceNow: ctx.priceNow,
+        tradesReady,
+        bookReady,
+        staleBook,
       });
     }
 
@@ -325,8 +368,16 @@ export class PreMovePressureEngine {
             downsideBookPreparation: v.downsideBookPreparation,
             upsideAttackScore: v.upsideAttackScore,
             downsideAttackScore: v.downsideAttackScore,
+            AggressiveBuyPower: v.AggressiveBuyPower,
+            AggressiveSellPower: v.AggressiveSellPower,
+            PassiveSellerDefense: v.PassiveSellerDefense,
+            PassiveBuyerDefense: v.PassiveBuyerDefense,
+            UpsideBattleSpread: v.UpsideBattleSpread,
+            DownsideBattleSpread: v.DownsideBattleSpread,
             askDefenseWeakening: v.askDefenseWeakening,
             bidDefenseWeakening: v.bidDefenseWeakening,
+            depthSource: v.depthSource,
+            dataQuality: v.dataQuality,
           },
         ])
       ),
@@ -356,38 +407,116 @@ export class PreMovePressureEngine {
     };
   }
 
-  _scoreWindow({ windowSec, now, regime, depth, approach, flow, liq, walls, tick, priceNow }) {
-    const buyVol = flow.aggressiveBuyVolume || 0;
-    const sellVol = flow.aggressiveSellVolume || 0;
-    const tot = buyVol + sellVol;
-    const buyVel = safeDiv(buyVol, windowSec);
-    const sellVel = safeDiv(sellVol, windowSec);
-    const buyImb = tot > 0 ? Math.max(0, (buyVol - sellVol) / tot) : 0;
-    const sellImb = tot > 0 ? Math.max(0, (sellVol - buyVol) / tot) : 0;
-    const largeBuy = safeDiv(flow.largeBuyVolume || 0, Math.max(buyVol, EPS));
-    const largeSell = safeDiv(flow.largeSellVolume || 0, Math.max(sellVol, EPS));
+  _scoreWindow({
+    windowSec,
+    now,
+    regime,
+    depth,
+    approach,
+    flow,
+    liq,
+    walls,
+    tick,
+    priceNow,
+    tradesReady = true,
+    bookReady = true,
+    staleBook = false,
+  }) {
+    const missingTrades = !tradesReady;
+    const missingBook = !bookReady;
+    const stale = !!staleBook || missingBook;
 
-    const askCancel = liq.askCancel || 0;
-    const bidCancel = liq.bidCancel || 0;
-    const askRefill = liq.askRefill || 0;
-    const bidRefill = liq.bidRefill || 0;
-    const askExec = liq.askExec || 0;
-    const bidExec = liq.bidExec || 0;
-    const askStack = liq.askStack || 0;
-    const bidStack = liq.bidStack || 0;
+    const buyVol = missingTrades ? null : flow.aggressiveBuyVolume || 0;
+    const sellVol = missingTrades ? null : flow.aggressiveSellVolume || 0;
+    const tot = (buyVol || 0) + (sellVol || 0);
+    const buyVel = missingTrades ? null : safeDiv(buyVol, windowSec);
+    const sellVel = missingTrades ? null : safeDiv(sellVol, windowSec);
+    const buyImb = missingTrades ? null : tot > 0 ? Math.max(0, (buyVol - sellVol) / tot) : 0;
+    const sellImb = missingTrades ? null : tot > 0 ? Math.max(0, (sellVol - buyVol) / tot) : 0;
+    const buyCount = missingTrades ? null : flow.buyCount || 0;
+    const sellCount = missingTrades ? null : flow.sellCount || 0;
+    const buyIntensity = missingTrades ? null : safeDiv(buyCount, windowSec);
+    const sellIntensity = missingTrades ? null : safeDiv(sellCount, windowSec);
+    const largeBuy = missingTrades ? null : safeDiv(flow.largeBuyVolume || 0, Math.max(buyVol || 0, EPS));
+    const largeSell = missingTrades ? null : safeDiv(flow.largeSellVolume || 0, Math.max(sellVol || 0, EPS));
+    const netDelta = missingTrades
+      ? null
+      : flow.netDelta ?? (buyVol || 0) - (sellVol || 0);
+    const buyDelta = missingTrades ? null : Math.max(0, netDelta || 0);
+    const sellDelta = missingTrades ? null : Math.max(0, -(netDelta || 0));
+    // Window CVD contribution reuses netDelta (existing flow metric)
+    const buyCvd = buyDelta;
+    const sellCvd = sellDelta;
 
-    const askSurv = survivalRaw(askExec, askCancel, askRefill, depth.askDepth);
-    const bidSurv = survivalRaw(bidExec, bidCancel, bidRefill, depth.bidDepth);
-    const askWith = withdrawalRaw(askCancel, askRefill);
-    const bidWith = withdrawalRaw(bidCancel, bidRefill);
-    const askChurn = safeDiv(askStack + askRefill + askCancel + askExec, depth.askDepth);
-    const bidChurn = safeDiv(bidStack + bidRefill + bidCancel + bidExec, depth.bidDepth);
-    const askUnreplaced = clamp01(safeDiv(askExec, Math.max(askExec + askRefill, EPS)));
-    const bidUnreplaced = clamp01(safeDiv(bidExec, Math.max(bidExec + bidRefill, EPS)));
+    const askCancel = missingBook || stale ? null : liq.askCancel || 0;
+    const bidCancel = missingBook || stale ? null : liq.bidCancel || 0;
+    const askRefill = missingBook || stale ? null : liq.askRefill || 0;
+    const bidRefill = missingBook || stale ? null : liq.bidRefill || 0;
+    const askExec = missingBook || stale ? null : liq.askExec || 0;
+    const bidExec = missingBook || stale ? null : liq.bidExec || 0;
+    const askStack = missingBook || stale ? null : liq.askStack || 0;
+    const bidStack = missingBook || stale ? null : liq.bidStack || 0;
+
+    const windowed = averageDepthOverWindow(this.depthHist, now, windowSec);
+    const askDepthWin = windowed.askDepth;
+    const bidDepthWin = windowed.bidDepth;
+    const nearAskWin = windowed.nearAsk;
+    const nearBidWin = windowed.nearBid;
+    const askDepthForDef =
+      missingBook || stale ? null : Number.isFinite(askDepthWin) ? askDepthWin : depth.askDepth;
+    const bidDepthForDef =
+      missingBook || stale ? null : Number.isFinite(bidDepthWin) ? bidDepthWin : depth.bidDepth;
+    const nearAskForDef =
+      missingBook || stale ? null : Number.isFinite(nearAskWin) ? nearAskWin : depth.nearAsk;
+    const nearBidForDef =
+      missingBook || stale ? null : Number.isFinite(nearBidWin) ? nearBidWin : depth.nearBid;
+    const askDepthSource = Number.isFinite(askDepthWin) ? "WINDOWED_DEPTH" : "CURRENT_DEPTH";
+    const bidDepthSource = Number.isFinite(bidDepthWin) ? "WINDOWED_DEPTH" : "CURRENT_DEPTH";
+
+    const askSurv =
+      askDepthForDef == null
+        ? null
+        : survivalRaw(askExec || 0, askCancel || 0, askRefill || 0, askDepthForDef);
+    const bidSurv =
+      bidDepthForDef == null
+        ? null
+        : survivalRaw(bidExec || 0, bidCancel || 0, bidRefill || 0, bidDepthForDef);
+    const askWith = askCancel == null ? null : withdrawalRaw(askCancel, askRefill || 0);
+    const bidWith = bidCancel == null ? null : withdrawalRaw(bidCancel, bidRefill || 0);
+    const askChurn =
+      askDepthForDef == null
+        ? null
+        : safeDiv((askStack || 0) + (askRefill || 0) + (askCancel || 0) + (askExec || 0), askDepthForDef);
+    const bidChurn =
+      bidDepthForDef == null
+        ? null
+        : safeDiv((bidStack || 0) + (bidRefill || 0) + (bidCancel || 0) + (bidExec || 0), bidDepthForDef);
+    const askUnreplaced =
+      askExec == null ? null : clamp01(safeDiv(askExec, Math.max(askExec + (askRefill || 0), EPS)));
+    const bidUnreplaced =
+      bidExec == null ? null : clamp01(safeDiv(bidExec, Math.max(bidExec + (bidRefill || 0), EPS)));
 
     const mid = priceNow;
     const askWall = wallApproachScore(walls?.largestAskWall, mid, tick, now);
     const bidWall = wallApproachScore(walls?.largestBidWall, mid, tick, now);
+    const askPersist = missingBook || stale ? null : wallPersistenceRaw(walls?.largestAskWall, now);
+    const bidPersist = missingBook || stale ? null : wallPersistenceRaw(walls?.largestBidWall, now);
+    const askWeakenRaw =
+      askDepthForDef == null
+        ? null
+        : clamp01(
+            0.35 * clamp01(safeDiv(askCancel || 0, Math.max(askDepthForDef, EPS))) +
+              0.35 * (askWith || 0) +
+              0.3 * clamp01(safeDiv(askExec || 0, Math.max((askExec || 0) + (askRefill || 0), EPS)))
+          );
+    const bidWeakenRaw =
+      bidDepthForDef == null
+        ? null
+        : clamp01(
+            0.35 * clamp01(safeDiv(bidCancel || 0, Math.max(bidDepthForDef, EPS))) +
+              0.35 * (bidWith || 0) +
+              0.3 * clamp01(safeDiv(bidExec || 0, Math.max((bidExec || 0) + (bidRefill || 0), EPS)))
+          );
 
     const prefix = `w${windowSec}`;
     const n = (name, value) => this.norm.observe(`${prefix}:${name}`, value, regime);
@@ -396,10 +525,16 @@ export class PreMovePressureEngine {
     const sellAggC = n("sellAgg", sellVol);
     const buyVelC = n("buyVel", buyVel);
     const sellVelC = n("sellVel", sellVel);
+    const buyIntC = n("buyInt", buyIntensity);
+    const sellIntC = n("sellInt", sellIntensity);
     const buyImbC = n("buyImb", buyImb);
     const sellImbC = n("sellImb", sellImb);
     const largeBuyC = n("largeBuy", largeBuy);
     const largeSellC = n("largeSell", largeSell);
+    const buyDeltaC = n("buyDelta", buyDelta);
+    const sellDeltaC = n("sellDelta", sellDelta);
+    const buyCvdC = n("buyCvd", buyCvd);
+    const sellCvdC = n("sellCvd", sellCvd);
     const askCancelC = n("askCancel", askCancel);
     const bidCancelC = n("bidCancel", bidCancel);
     const askWithC = n("askWith", askWith);
@@ -410,8 +545,14 @@ export class PreMovePressureEngine {
     const bidRefillC = n("bidRefill", bidRefill);
     const askSurvC = n("askSurv", askSurv);
     const bidSurvC = n("bidSurv", bidSurv);
-    const askDepthC = n("askDepth", depth.askDepth);
-    const bidDepthC = n("bidDepth", depth.bidDepth);
+    const askDepthC = n("askDepth", askDepthForDef);
+    const bidDepthC = n("bidDepth", bidDepthForDef);
+    const nearAskC = n("nearAsk", nearAskForDef);
+    const nearBidC = n("nearBid", nearBidForDef);
+    const askPersC = n("askPers", askPersist);
+    const bidPersC = n("bidPers", bidPersist);
+    const askWeakC = n("askWeak", askWeakenRaw);
+    const bidWeakC = n("bidWeak", bidWeakenRaw);
     const askConcC = n("askConc", depth.askConc);
     const bidConcC = n("bidConc", depth.bidConc);
     const askApproachC = n("askApproach", approach.ask);
@@ -421,83 +562,112 @@ export class PreMovePressureEngine {
     const askChurnC = n("askChurn", askChurn);
     const bidChurnC = n("bidChurn", bidChurn);
 
-    const BuyAggressionPower = buyAggC.power;
-    const SellAggressionPower = sellAggC.power;
-    const BuyExecutionVelocity = buyVelC.power;
-    const SellExecutionVelocity = sellVelC.power;
-    const BuyImbalanceStrength = buyImbC.power;
-    const SellImbalanceStrength = sellImbC.power;
-    const AskCancellation = askCancelC.power;
-    const BidCancellation = bidCancelC.power;
-    const AskWithdrawal = askWithC.power;
-    const BidWithdrawal = bidWithC.power;
-    const AskConsumption = askExecC.power;
-    const BidConsumption = bidExecC.power;
-    const AskReplenishment = askRefillC.power;
-    const BidReplenishment = bidRefillC.power;
-    const AskSurvival = askSurvC.power;
-    const BidSurvival = bidSurvC.power;
-    const AskDepthThinness = this.norm.thinnessPower(askDepthC);
-    const BidDepthThinness = this.norm.thinnessPower(bidDepthC);
-    const nearAskFall = this.norm.thinnessPower(askConcC);
-    const nearBidFall = this.norm.thinnessPower(bidConcC);
+    const BuyAggressionPower = missingTrades ? null : buyAggC.power;
+    const SellAggressionPower = missingTrades ? null : sellAggC.power;
+    const BuyExecutionVelocity = missingTrades ? null : buyVelC.power;
+    const SellExecutionVelocity = missingTrades ? null : sellVelC.power;
+    const BuyImbalanceStrength = missingTrades ? null : buyImbC.power;
+    const SellImbalanceStrength = missingTrades ? null : sellImbC.power;
+    const AskCancellation = missingBook || stale ? null : askCancelC.power;
+    const BidCancellation = missingBook || stale ? null : bidCancelC.power;
+    const AskWithdrawal = missingBook || stale ? null : askWithC.power;
+    const BidWithdrawal = missingBook || stale ? null : bidWithC.power;
+    const AskConsumption = missingBook || stale ? null : askExecC.power;
+    const BidConsumption = missingBook || stale ? null : bidExecC.power;
+    const AskReplenishment = missingBook || stale ? null : askRefillC.power;
+    const BidReplenishment = missingBook || stale ? null : bidRefillC.power;
+    const AskSurvival = missingBook || stale ? null : askSurvC.power;
+    const BidSurvival = missingBook || stale ? null : bidSurvC.power;
+    const AskDepthThinness = missingBook || stale ? null : this.norm.thinnessPower(askDepthC);
+    const BidDepthThinness = missingBook || stale ? null : this.norm.thinnessPower(bidDepthC);
+    const nearAskFall = missingBook || stale ? null : this.norm.thinnessPower(askConcC);
+    const nearBidFall = missingBook || stale ? null : this.norm.thinnessPower(bidConcC);
     const AskApproach = askApproachC.power;
     const BidApproach = bidApproachC.power;
 
     const askDefFeat = {
-      survivalFall: invertScore(AskSurvival),
+      survivalFall: AskSurvival == null ? null : invertScore(AskSurvival),
       depthFall: AskDepthThinness,
       cancellation: AskCancellation,
-      replenishFall: invertScore(AskReplenishment),
+      replenishFall: AskReplenishment == null ? null : invertScore(AskReplenishment),
       wallApproach: askWall,
       consumedUnreplaced: askUnrepC.power,
     };
     const bidDefFeat = {
-      survivalFall: invertScore(BidSurvival),
+      survivalFall: BidSurvival == null ? null : invertScore(BidSurvival),
       depthFall: BidDepthThinness,
       cancellation: BidCancellation,
-      replenishFall: invertScore(BidReplenishment),
+      replenishFall: BidReplenishment == null ? null : invertScore(BidReplenishment),
       wallApproach: bidWall,
       consumedUnreplaced: bidUnrepC.power,
     };
     const askDef = this.defense.score(askDefFeat);
     const bidDef = this.defense.score(bidDefFeat);
 
-    const PassiveSellerDefense = clamp(
-      Math.round(0.5 * AskSurvival + 0.3 * AskReplenishment + 0.2 * (100 - AskWithdrawal)),
-      0,
-      100
-    );
-    const PassiveBuyerDefense = clamp(
-      Math.round(0.5 * BidSurvival + 0.3 * BidReplenishment + 0.2 * (100 - BidWithdrawal)),
-      0,
-      100
-    );
+    const defWeights = this.weights.passiveDefense || PRE_MOVE_WEIGHTS.passiveDefense;
+    const PassiveSellerDefense =
+      missingBook || stale
+        ? null
+        : combineWeighted(defWeights, {
+            depth: askDepthC.power,
+            nearTouch: nearAskC.power,
+            replenishment: AskReplenishment,
+            survival: AskSurvival,
+            persistence: askPersC.power,
+            cancellation: AskCancellation,
+            withdrawal: AskWithdrawal,
+            consumption: AskConsumption,
+            defenseWeakening: askWeakC.power,
+          }).score;
+    const PassiveBuyerDefense =
+      missingBook || stale
+        ? null
+        : combineWeighted(defWeights, {
+            depth: bidDepthC.power,
+            nearTouch: nearBidC.power,
+            replenishment: BidReplenishment,
+            survival: BidSurvival,
+            persistence: bidPersC.power,
+            cancellation: BidCancellation,
+            withdrawal: BidWithdrawal,
+            consumption: BidConsumption,
+            defenseWeakening: bidWeakC.power,
+          }).score;
 
+    const bookUp = this.bookPrep.score({
+      depthThinness: AskDepthThinness,
+      cancellation: AskCancellation,
+      withdrawal: AskWithdrawal,
+      survivalFall: AskSurvival == null ? null : invertScore(AskSurvival),
+      approachWithdrawal: AskApproach,
+      nearTouchFall: nearAskFall,
+      replenishWeak: AskReplenishment == null ? null : invertScore(AskReplenishment),
+    });
+    const bookDown = this.bookPrep.score({
+      depthThinness: BidDepthThinness,
+      cancellation: BidCancellation,
+      withdrawal: BidWithdrawal,
+      survivalFall: BidSurvival == null ? null : invertScore(BidSurvival),
+      approachWithdrawal: BidApproach,
+      nearTouchFall: nearBidFall,
+      replenishWeak: BidReplenishment == null ? null : invertScore(BidReplenishment),
+    });
+
+    // Main score: attack + book prep + defense weakening vs PassiveDefense (no raw cancel/etc.)
     const upFeat = {
       BuyAggressionPower,
       BuyExecutionVelocity,
       BuyImbalanceStrength,
-      AskCancellation,
-      AskWithdrawal,
-      AskConsumption,
-      AskDepthThinness,
+      upsideBookPreparation: bookUp.score,
       AskDefenseWeakening: askDef.score,
-      AskReplenishment,
-      AskSurvival,
       PassiveSellerDefense,
     };
     const downFeat = {
       SellAggressionPower,
       SellExecutionVelocity,
       SellImbalanceStrength,
-      BidCancellation,
-      BidWithdrawal,
-      BidConsumption,
-      BidDepthThinness,
+      downsideBookPreparation: bookDown.score,
       BidDefenseWeakening: bidDef.score,
-      BidReplenishment,
-      BidSurvival,
       PassiveBuyerDefense,
     };
 
@@ -507,56 +677,87 @@ export class PreMovePressureEngine {
     const attackUp = combineWeighted(this.weights.attack, {
       aggression: BuyAggressionPower,
       velocity: BuyExecutionVelocity,
+      intensity: buyIntC.power,
       imbalance: BuyImbalanceStrength,
       large: largeBuyC.power,
+      delta: buyDeltaC.power,
+      cvd: buyCvdC.power,
     });
     const attackDown = combineWeighted(this.weights.attack, {
       aggression: SellAggressionPower,
       velocity: SellExecutionVelocity,
+      intensity: sellIntC.power,
       imbalance: SellImbalanceStrength,
       large: largeSellC.power,
+      delta: sellDeltaC.power,
+      cvd: sellCvdC.power,
     });
 
-    const bookUp = this.bookPrep.score({
-      depthThinness: AskDepthThinness,
-      cancellation: AskCancellation,
-      withdrawal: AskWithdrawal,
-      survivalFall: invertScore(AskSurvival),
-      approachWithdrawal: AskApproach,
-      nearTouchFall: nearAskFall,
-      replenishWeak: invertScore(AskReplenishment),
-    });
-    const bookDown = this.bookPrep.score({
-      depthThinness: BidDepthThinness,
-      cancellation: BidCancellation,
-      withdrawal: BidWithdrawal,
-      survivalFall: invertScore(BidSurvival),
-      approachWithdrawal: BidApproach,
-      nearTouchFall: nearBidFall,
-      replenishWeak: invertScore(BidReplenishment),
-    });
+    const up = missingTrades ? null : upCombo.score;
+    const down = missingTrades ? null : downCombo.score;
+    const imbalance =
+      up == null || down == null ? null : clamp(up - down, -100, 100);
+    const normalizedImbalance =
+      up == null || down == null ? null : (up - down) / Math.max(up + down, EPS);
 
-    const up = upCombo.score;
-    const down = downCombo.score;
-    const imbalance = clamp(up - down, -100, 100);
-    const normalizedImbalance = (up - down) / Math.max(up + down, EPS);
+    const UpsideBattleSpread =
+      attackUp.score != null && PassiveSellerDefense != null
+        ? Math.round(attackUp.score - PassiveSellerDefense)
+        : null;
+    const DownsideBattleSpread =
+      attackDown.score != null && PassiveBuyerDefense != null
+        ? Math.round(attackDown.score - PassiveBuyerDefense)
+        : null;
 
     const wHist = this.windowHistory[windowSec] || (this.windowHistory[windowSec] = []);
-    const motion = this.accel.measure(wHist, now, up, down);
-    const upPers = this.persist.measure(wHist, now, up, "up");
-    const downPers = this.persist.measure(wHist, now, down, "down");
-    wHist.push({ t: now, up, down });
+    const motion = this.accel.measure(wHist, now, up ?? 50, down ?? 50);
+    const upPers = this.persist.measure(wHist, now, up ?? 50, "up");
+    const downPers = this.persist.measure(wHist, now, down ?? 50, "down");
+    if (up != null && down != null) wHist.push({ t: now, up, down });
     while (wHist.length > (this.config.historyMaxPoints || 4200)) wHist.shift();
+
+    // Diagnostic features (not in main combiner) kept for details / WHY
+    const diagnostic = {
+      AskCancellation,
+      AskWithdrawal,
+      AskConsumption,
+      AskDepthThinness,
+      AskReplenishment,
+      AskSurvival,
+      BidCancellation,
+      BidWithdrawal,
+      BidConsumption,
+      BidDepthThinness,
+      BidReplenishment,
+      BidSurvival,
+      AskDepth: askDepthC.power,
+      BidDepth: bidDepthC.power,
+      NearAskDepth: nearAskC.power,
+      NearBidDepth: nearBidC.power,
+      AskPersistence: askPersC.power,
+      BidPersistence: bidPersC.power,
+    };
 
     const features = {
       ...upFeat,
       ...downFeat,
+      ...diagnostic,
       LargeBuyActivity: largeBuyC.power,
       LargeSellActivity: largeSellC.power,
+      BuyTradeIntensity: buyIntC.power,
+      SellTradeIntensity: sellIntC.power,
+      BuyDeltaContribution: buyDeltaC.power,
+      SellDeltaContribution: sellDeltaC.power,
+      BuyCvdContribution: buyCvdC.power,
+      SellCvdContribution: sellCvdC.power,
       AskChurn: askChurnC.power,
       BidChurn: bidChurnC.power,
       AskApproach,
       BidApproach,
+      AggressiveBuyPower: attackUp.score,
+      AggressiveSellPower: attackDown.score,
+      PassiveSellerDefense,
+      PassiveBuyerDefense,
     };
 
     const percentiles = {
@@ -572,17 +773,18 @@ export class PreMovePressureEngine {
       SellAggressionPower: sellAggC.percentile,
     };
 
-      const up10 = pressureAt(wHist, now, 10, "up");
-      const up30 = pressureAt(wHist, now, 30, "up");
-      const down10 = pressureAt(wHist, now, 10, "down");
-      const down30 = pressureAt(wHist, now, 30, "down");
+    const up10 = pressureAt(wHist, now, 10, "up");
+    const up30 = pressureAt(wHist, now, 30, "up");
+    const down10 = pressureAt(wHist, now, 10, "down");
+    const down30 = pressureAt(wHist, now, 30, "down");
 
     return {
       windowSec,
       upPressure: up,
       downPressure: down,
-      pressureImbalance: Math.round(imbalance),
-      normalizedImbalance: Math.round(normalizedImbalance * 1000) / 1000,
+      pressureImbalance: imbalance == null ? null : Math.round(imbalance),
+      normalizedImbalance:
+        normalizedImbalance == null ? null : Math.round(normalizedImbalance * 1000) / 1000,
       upVelocity: motion.upVelocity,
       downVelocity: motion.downVelocity,
       upAcceleration: motion.upAcceleration,
@@ -597,26 +799,41 @@ export class PreMovePressureEngine {
       downsideBookPreparation: bookDown.score,
       upsideAttackScore: attackUp.score,
       downsideAttackScore: attackDown.score,
+      AggressiveBuyPower: attackUp.score,
+      AggressiveSellPower: attackDown.score,
+      PassiveSellerDefense,
+      PassiveBuyerDefense,
+      UpsideBattleSpread,
+      DownsideBattleSpread,
       askDefenseWeakening: askDef.score,
       bidDefenseWeakening: bidDef.score,
+      depthSource: { ask: askDepthSource, bid: bidDepthSource },
+      dataQuality: {
+        trades: missingTrades ? "NO_DATA" : buyVol === 0 && sellVol === 0 ? "REAL_ZERO" : "OK",
+        book: missingBook ? "NO_DATA" : stale ? "STALE" : "OK",
+      },
       breakdown: {
         upside: {
           attackPower: attackUp.score,
           bookPreparation: bookUp.score,
           askDefenseWeakening: askDef.score,
+          passiveSellerDefense: PassiveSellerDefense,
           askConsumption: AskConsumption,
           askWithdrawal: AskWithdrawal,
           askReplenishment: AskReplenishment,
           askSurvival: AskSurvival,
+          battleSpread: UpsideBattleSpread,
         },
         downside: {
           attackPower: attackDown.score,
           bookPreparation: bookDown.score,
           bidDefenseWeakening: bidDef.score,
+          passiveBuyerDefense: PassiveBuyerDefense,
           bidConsumption: BidConsumption,
           bidWithdrawal: BidWithdrawal,
           bidReplenishment: BidReplenishment,
           bidSurvival: BidSurvival,
+          battleSpread: DownsideBattleSpread,
         },
       },
       context: {
@@ -639,10 +856,14 @@ export class PreMovePressureEngine {
         bidExec,
         askRefill,
         bidRefill,
-        askDepth: depth.askDepth,
-        bidDepth: depth.bidDepth,
-        nearAsk: depth.nearAsk,
-        nearBid: depth.nearBid,
+        askDepthCurrent: depth.askDepth,
+        bidDepthCurrent: depth.bidDepth,
+        askDepthWindowed: askDepthWin,
+        bidDepthWindowed: bidDepthWin,
+        nearAskCurrent: depth.nearAsk,
+        nearBidCurrent: depth.nearBid,
+        nearAskWindowed: nearAskWin,
+        nearBidWindowed: nearBidWin,
         bookImbalance: depth.bookImbalance,
       },
       percentiles,
@@ -693,7 +914,10 @@ export class PreMovePressureEngine {
     const n = this.windows.length;
     for (const w of this.windows) {
       const c = byWindow[w];
-      if (!c) continue;
+      if (!c || c.upPressure == null || c.downPressure == null) {
+        flat += 1;
+        continue;
+      }
       const d = c.upPressure - c.downPressure;
       if (d >= 10) up += 1;
       else if (d <= -10) down += 1;

@@ -63,7 +63,7 @@ export class PressureNormalizationEngine {
         z: null,
         robustZ: null,
         band: "UNKNOWN",
-        power: 50,
+        power: null,
         samples: 0,
       };
     }
@@ -110,7 +110,7 @@ export class PressureNormalizationEngine {
         z: null,
         robustZ: null,
         band: "UNKNOWN",
-        power: 50,
+        power: null,
         samples,
       };
     }
@@ -153,13 +153,13 @@ export class PressureNormalizationEngine {
   }
 
   powerFromPercentile(p) {
-    if (p == null) return 50;
+    if (p == null) return null;
     return score100(p);
   }
 
   /** Inverse power: high when the raw value is historically low (thin books). */
   thinnessPower(ctx) {
-    if (ctx.percentile == null) return 50;
+    if (ctx.percentile == null) return null;
     return score100(1 - clamp01(ctx.percentile));
   }
 }

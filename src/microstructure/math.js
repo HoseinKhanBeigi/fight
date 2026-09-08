@@ -34,15 +34,23 @@ export function combineWeighted(weights, features) {
   let s = 0;
   let minS = 0;
   let maxS = 0;
+  let used = 0;
   /** @type {Record<string, number>} */
   const contributions = {};
 
   for (const [key, w] of Object.entries(weights)) {
-    const x = clamp01((Number(features[key]) || 0) / 100);
+    const raw = features[key];
+    if (!Number.isFinite(raw)) continue;
+    const x = clamp01(Number(raw) / 100);
     s += w * x;
     if (w >= 0) maxS += w;
     else minS += w;
     contributions[key] = w * x;
+    used += 1;
+  }
+
+  if (used === 0) {
+    return { score: null, contributions: {}, raw: 0 };
   }
 
   const span = Math.max(maxS - minS, EPS);

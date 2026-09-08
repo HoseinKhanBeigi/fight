@@ -311,6 +311,11 @@ export class OrderFlowMonitor {
 
     const askLiq = this.book.totalNearLiquidity("ask", 20);
     const bidLiq = this.book.totalNearLiquidity("bid", 20);
+    const nearAskLiq = this.book.totalNearLiquidity("ask", 3);
+    const nearBidLiq = this.book.totalNearLiquidity("bid", 3);
+    const bookReady = this.ready && this.feed.bookReady;
+    const staleBook = this.book.lastEventTime > 0 && now - this.book.lastEventTime > 2;
+    const tradesReady = this.flow.trades.length > 0;
     const absorptionByWindow = Object.fromEntries(
       this.config.windows.map((w) => {
         const flow = flowWindows[w] || {};
@@ -340,11 +345,15 @@ export class OrderFlowMonitor {
       liqWindows,
       askLiquidity: askLiq,
       bidLiquidity: bidLiq,
+      nearAskLiquidity: nearAskLiq,
+      nearBidLiquidity: nearBidLiq,
       priceNow,
       priceHistory: this.flow.priceHistory,
       now,
-      bookReady: this.ready && this.feed.bookReady,
-      tradesReady: this.flow.trades.length > 0 || this.history.status === "done",
+      bookReady,
+      tradesReady,
+      staleBook,
+      walls: this.walls,
     });
 
     const lastTrade = this.flow.trades.length
@@ -359,9 +368,9 @@ export class OrderFlowMonitor {
       book: this.book,
       walls: this.walls,
       tickSize: tick,
-      bookReady: this.ready && this.feed.bookReady,
-      tradesReady: this.flow.trades.length > 0 || this.history.status === "done",
-      staleBook: this.book.lastEventTime > 0 && now - this.book.lastEventTime > 2,
+      bookReady,
+      tradesReady,
+      staleBook,
       lastTradeAge: lastTrade ? now - lastTrade.timestamp : 999,
       lastBookAge: this.book.lastEventTime ? now - this.book.lastEventTime : 999,
     });

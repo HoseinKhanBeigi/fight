@@ -1,38 +1,47 @@
 /** Configurable parameters for the order-flow monitor. */
 export const PRE_MOVE_WINDOWS = [5, 10, 30, 60, 300, 900];
 
+/**
+ * Pre-move score hierarchy (avoid double-counting raw book signals):
+ *   RAW BOOK FEATURES → PassiveDefense + BookPreparation → PreMovePressure
+ * Individual cancel/refill/survival/consumption stay diagnostic-only.
+ */
 export const PRE_MOVE_WEIGHTS = {
   up: {
-    BuyAggressionPower: 0.25,
+    BuyAggressionPower: 0.3,
     BuyExecutionVelocity: 0.1,
     BuyImbalanceStrength: 0.1,
-    AskCancellation: 0.12,
-    AskWithdrawal: 0.12,
-    AskConsumption: 0.1,
-    AskDepthThinness: 0.08,
+    upsideBookPreparation: 0.22,
     AskDefenseWeakening: 0.08,
-    AskReplenishment: -0.08,
-    AskSurvival: -0.05,
-    PassiveSellerDefense: -0.02,
+    PassiveSellerDefense: -0.2,
   },
   down: {
-    SellAggressionPower: 0.25,
+    SellAggressionPower: 0.3,
     SellExecutionVelocity: 0.1,
     SellImbalanceStrength: 0.1,
-    BidCancellation: 0.12,
-    BidWithdrawal: 0.12,
-    BidConsumption: 0.1,
-    BidDepthThinness: 0.08,
+    downsideBookPreparation: 0.22,
     BidDefenseWeakening: 0.08,
-    BidReplenishment: -0.08,
-    BidSurvival: -0.05,
-    PassiveBuyerDefense: -0.02,
+    PassiveBuyerDefense: -0.2,
   },
   attack: {
-    aggression: 0.4,
-    velocity: 0.2,
-    imbalance: 0.2,
-    large: 0.2,
+    aggression: 0.28,
+    velocity: 0.16,
+    intensity: 0.12,
+    imbalance: 0.14,
+    large: 0.12,
+    delta: 0.09,
+    cvd: 0.09,
+  },
+  passiveDefense: {
+    depth: 0.16,
+    nearTouch: 0.12,
+    replenishment: 0.16,
+    survival: 0.16,
+    persistence: 0.1,
+    cancellation: -0.12,
+    withdrawal: -0.1,
+    consumption: -0.1,
+    defenseWeakening: -0.08,
   },
   bookPrep: {
     depthThinness: 0.18,
