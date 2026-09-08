@@ -2,6 +2,15 @@
  * Live order-flow dashboard (aggressive vs passive fight panel).
  */
 
+import {
+  BATTLE_CHART_MS,
+  createBattleVizState,
+  ingestBattleViz,
+  ensureBattleVizShell,
+  paintBattleViz,
+  battleVizEvents,
+} from "./battle-viz.js";
+
 /** Same list as oderFlow `DEFAULT_WATCHLIST` + `EQUITY_PERP_WATCHLIST` */
 const CRYPTO_WATCHLIST = [
   { symbol: "BTCUSDT", label: "BTC" },
@@ -75,6 +84,8 @@ const ui = {
   preMoveChartAt: 0,
   preMoveChartWindow: 60,
   preMoveHoverT: null,
+  battleViz: null,
+  battleVizPaintAt: 0,
   last: null,
   ticker24h: null,
   headerReady: false,
@@ -1529,6 +1540,33 @@ function ensureFightShell() {
   el.innerHTML = `<div id="premove-root"></div><div id="battle-root"></div>`;
 }
 
+function ensureBattleShell() {
+  ensureFightShell();
+  const root = $("battle-root");
+  if (root.querySelector("#battle-viz-root") && root.querySelector("#battle-cards")) return;
+  root.innerHTML = `<div id="battle-viz-root" class="bv-root"></div><div id="battle-cards"></div>`;
+}
+
+function modelTfLabel() {
+  return INTERVALS.find((it) => it.sec === ui.interval)?.label || `${ui.interval}s`;
+}
+
+function refreshBattleViz() {
+  if (!ui.battleViz) ui.battleViz = createBattleVizState();
+  ensureBattleShell();
+  ensureBattleVizShell($("battle-viz-root"), ui.battleViz, modelTfLabel(), () => {
+    paintBattleViz(ui.battleViz, modelTfLabel());
+  });
+  paintBattleViz(ui.battleViz, modelTfLabel());
+  requestAnimationFrame(() => paintBattleViz(ui.battleViz, modelTfLabel()));
+  // Expose for console / later backtest lab
+  window.__battleVizEvents = () => battleVizEvents(ui.battleViz);
+  window.__battleVizHistory = () => ({
+    upside: [...(ui.battleViz.upside.hist || [])],
+    downside: [...(ui.battleViz.downside.hist || [])],
+  });
+}
+
 function ensurePreMoveShell() {
   ensureFightShell();
   const root = $("premove-root");
@@ -1564,23 +1602,29 @@ function paintPreMove(s) {
 }
 
 function paintBattle(s) {
-  ensureFightShell();
+  ensureBattleShell();
+  if (!ui.battleViz) ui.battleViz = createBattleVizState();
+  ensureBattleVizShell($("battle-viz-root"), ui.battleViz, modelTfLabel(), () => {
+    paintBattleViz(ui.battleViz, modelTfLabel());
+  });
+
   const px = s.price ?? s.bestBid ?? s.bestAsk;
   const w = ui.interval;
   const tf = INTERVALS.find((it) => it.sec === w)?.label || `${w}s`;
   const pack = s.battlesByWindow?.[w] || s.battlesByWindow?.[String(w)] || null;
   const buy = pack?.buy;
   const sell = pack?.sell;
+  const cards = $("battle-cards");
 
   if (!buy && !sell) {
-    $("battle-root").innerHTML = `
+    cards.innerHTML = `
       <div class="fight-card buy"><div class="fight-hint">Waiting for battle engine… restart the server if this persists.</div></div>
       <div class="fight-card sell"><div class="fight-hint">Waiting for battle engine…</div></div>
     `;
     return;
   }
 
-  $("battle-root").innerHTML = `
+  cards.innerHTML = `
     ${sidePresenceShape(s, w, px)}
     ${renderBattleCard(buy, px, "buy", "Aggressive buyers", "Passive asks", tf)}
     ${renderBattleCard(sell, px, "sell", "Aggressive sellers", "Passive bids", tf)}
@@ -1625,6 +1669,7 @@ function renderFooter() {
   $("footer").innerHTML = `
     <div class="note" style="grid-column:1/-1">
       Attack = aggressive trade flow · Defense = passive book behavior · Response = price efficiency + absorption score.
+      Battle charts plot normalized Attack vs Defense only (0–100) — never raw dollars.
       Pre-move pressure uses book preparation, attack, and defense weakening only — never future price.
       Consumed ≠ Aggressive (aggressive is already executed tape; consumed is resting liquidity removed by trades).
       Surges use rolling percentiles, not raw dollar cutoffs.
@@ -1649,6 +1694,8 @@ function switchSymbol(next) {
   send({ type: "setSymbol", symbol: sym.toLowerCase() });
   ui.displayPressure = null;
   ui.preMovePaintAt = 0;
+  ui.battleViz = createBattleVizState();
+  ui.battleVizPaintAt = 0;
 }
 
 function ensureHeader() {
@@ -1717,8 +1764,14 @@ function ensureHeader() {
       const n = Number(btn.dataset.n);
       if (!n || n === ui.interval) return;
       ui.interval = n;
+      // Reset display history when battle model timeframe changes
+      if (ui.battleViz) {
+        ui.battleViz = createBattleVizState();
+        ui.battleViz.chartWindow = 60;
+      }
+      ui.battleVizPaintAt = 0;
       syncIntervalButtons();
-      if (ui.last) paintBattle(ui.last);
+      if (ui.last) renderAll(ui.last, true);
     });
   });
 
@@ -1786,7 +1839,9 @@ function renderHeader(s) {
 
 function renderAll(s, forcePaint = false) {
   ui.last = s;
+  if (!ui.battleViz) ui.battleViz = createBattleVizState();
   ingestDisplayPressure(s);
+  ingestBattleViz(ui.battleViz, s, ui.interval);
   renderHeader(s);
   paintBattle(s);
   const now = Date.now();
@@ -1797,6 +1852,10 @@ function renderAll(s, forcePaint = false) {
   } else if (now - ui.preMoveChartAt >= PREMOVE_CHART_MS) {
     ui.preMoveChartAt = now;
     drawPressureChart();
+  }
+  if (forcePaint || now - ui.battleVizPaintAt >= BATTLE_CHART_MS) {
+    ui.battleVizPaintAt = now;
+    refreshBattleViz();
   }
 }
 
