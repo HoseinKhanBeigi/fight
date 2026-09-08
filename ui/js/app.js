@@ -10,6 +10,14 @@ import {
   paintBattleViz,
   battleVizEvents,
 } from "./battle-viz.js";
+import {
+  PROFILE_PAINT_MS,
+  createLiquidityProfileState,
+  ingestLiquidityProfile,
+  ensureLiquidityProfileShell,
+  paintLiquidityProfile,
+  liquidityProfileHistory,
+} from "./liquidity-profile.js";
 
 /** Same list as oderFlow `DEFAULT_WATCHLIST` + `EQUITY_PERP_WATCHLIST` */
 const CRYPTO_WATCHLIST = [
@@ -86,6 +94,8 @@ const ui = {
   preMoveHoverT: null,
   battleViz: null,
   battleVizPaintAt: 0,
+  liquidityProfile: null,
+  liquidityProfilePaintAt: 0,
   last: null,
   ticker24h: null,
   headerReady: false,
@@ -1543,8 +1553,13 @@ function ensureFightShell() {
 function ensureBattleShell() {
   ensureFightShell();
   const root = $("battle-root");
-  if (root.querySelector("#battle-viz-root") && root.querySelector("#battle-cards")) return;
-  root.innerHTML = `<div id="battle-viz-root" class="bv-root"></div><div id="battle-cards"></div>`;
+  if (
+    root.querySelector("#battle-viz-root") &&
+    root.querySelector("#liquidity-profile-root") &&
+    root.querySelector("#battle-cards")
+  )
+    return;
+  root.innerHTML = `<div id="battle-viz-root" class="bv-root"></div><div id="liquidity-profile-root" class="lp-root"></div><div id="battle-cards"></div>`;
 }
 
 function modelTfLabel() {
@@ -1565,6 +1580,17 @@ function refreshBattleViz() {
     upside: [...(ui.battleViz.upside.hist || [])],
     downside: [...(ui.battleViz.downside.hist || [])],
   });
+}
+
+function refreshLiquidityProfile() {
+  if (!ui.liquidityProfile) ui.liquidityProfile = createLiquidityProfileState();
+  ensureBattleShell();
+  ensureLiquidityProfileShell($("liquidity-profile-root"), ui.liquidityProfile, modelTfLabel(), () => {
+    paintLiquidityProfile(ui.liquidityProfile, modelTfLabel());
+  });
+  paintLiquidityProfile(ui.liquidityProfile, modelTfLabel());
+  requestAnimationFrame(() => paintLiquidityProfile(ui.liquidityProfile, modelTfLabel()));
+  window.__liquidityProfileHistory = () => liquidityProfileHistory(ui.liquidityProfile);
 }
 
 function ensurePreMoveShell() {
@@ -1604,8 +1630,12 @@ function paintPreMove(s) {
 function paintBattle(s) {
   ensureBattleShell();
   if (!ui.battleViz) ui.battleViz = createBattleVizState();
+  if (!ui.liquidityProfile) ui.liquidityProfile = createLiquidityProfileState();
   ensureBattleVizShell($("battle-viz-root"), ui.battleViz, modelTfLabel(), () => {
     paintBattleViz(ui.battleViz, modelTfLabel());
+  });
+  ensureLiquidityProfileShell($("liquidity-profile-root"), ui.liquidityProfile, modelTfLabel(), () => {
+    paintLiquidityProfile(ui.liquidityProfile, modelTfLabel());
   });
 
   const px = s.price ?? s.bestBid ?? s.bestAsk;
@@ -1670,6 +1700,7 @@ function renderFooter() {
     <div class="note" style="grid-column:1/-1">
       Attack = aggressive trade flow · Defense = passive book behavior · Response = price efficiency + absorption score.
       Battle charts plot normalized Attack vs Defense only (0–100) — never raw dollars.
+      Passive liquidity profile = radar of replenishment / survival / cancellation / consumption (percentile 0–100). Absorption stays outside the shape.
       Pre-move pressure uses book preparation, attack, and defense weakening only — never future price.
       Consumed ≠ Aggressive (aggressive is already executed tape; consumed is resting liquidity removed by trades).
       Surges use rolling percentiles, not raw dollar cutoffs.
@@ -1696,6 +1727,8 @@ function switchSymbol(next) {
   ui.preMovePaintAt = 0;
   ui.battleViz = createBattleVizState();
   ui.battleVizPaintAt = 0;
+  ui.liquidityProfile = createLiquidityProfileState();
+  ui.liquidityProfilePaintAt = 0;
 }
 
 function ensureHeader() {
@@ -1770,6 +1803,8 @@ function ensureHeader() {
         ui.battleViz.chartWindow = 60;
       }
       ui.battleVizPaintAt = 0;
+      ui.liquidityProfile = createLiquidityProfileState();
+      ui.liquidityProfilePaintAt = 0;
       syncIntervalButtons();
       if (ui.last) renderAll(ui.last, true);
     });
@@ -1840,8 +1875,10 @@ function renderHeader(s) {
 function renderAll(s, forcePaint = false) {
   ui.last = s;
   if (!ui.battleViz) ui.battleViz = createBattleVizState();
+  if (!ui.liquidityProfile) ui.liquidityProfile = createLiquidityProfileState();
   ingestDisplayPressure(s);
   ingestBattleViz(ui.battleViz, s, ui.interval);
+  ingestLiquidityProfile(ui.liquidityProfile, s, ui.interval);
   renderHeader(s);
   paintBattle(s);
   const now = Date.now();
@@ -1856,6 +1893,10 @@ function renderAll(s, forcePaint = false) {
   if (forcePaint || now - ui.battleVizPaintAt >= BATTLE_CHART_MS) {
     ui.battleVizPaintAt = now;
     refreshBattleViz();
+  }
+  if (forcePaint || now - ui.liquidityProfilePaintAt >= PROFILE_PAINT_MS) {
+    ui.liquidityProfilePaintAt = now;
+    refreshLiquidityProfile();
   }
 }
 

@@ -2071,3 +2071,334 @@ select {
   .pm-factor-head,
   .pm-factor { grid-template-columns: 80px 1fr 1fr; }
 }
+
+/* ── PASSIVE LIQUIDITY PROFILE / DEFENSE SHAPE ── */
+#liquidity-profile-root {
+  grid-column: 1 / -1;
+}
+
+.lp-root {
+  border: 1px solid var(--border-1);
+  border-radius: var(--radius);
+  background: var(--bg-2);
+  padding: 10px 12px 10px;
+}
+
+.lp-wrap { display: flex; flex-direction: column; gap: 8px; }
+
+.lp-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+}
+
+.lp-toolbar-title {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-1);
+}
+
+.lp-toolbar-sub {
+  font-size: 10px;
+  color: var(--text-3);
+  letter-spacing: 0.04em;
+}
+
+.lp-windows {
+  display: flex;
+  gap: 4px;
+  margin-left: auto;
+}
+
+.lp-windows button {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  padding: 2px 6px;
+  border: 1px solid var(--border-1);
+  background: var(--bg-3);
+  color: var(--text-3);
+  border-radius: 3px;
+  cursor: pointer;
+}
+
+.lp-windows button.active {
+  color: var(--text-1);
+  border-color: var(--border-2);
+  background: var(--bg-4);
+}
+
+.lp-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-3);
+  cursor: pointer;
+  user-select: none;
+}
+
+.lp-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.lp-panel {
+  border: 1px solid var(--border-1);
+  border-radius: var(--radius);
+  background: var(--bg-3);
+  padding: 8px 10px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+.lp-panel.ask { border-top: 2px solid var(--sell); }
+.lp-panel.bid { border-top: 2px solid var(--buy); }
+
+.lp-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.lp-title {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-0);
+}
+
+.lp-model {
+  margin-left: auto;
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--text-3);
+}
+
+.lp-banner {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: 4px 6px;
+  border-radius: 3px;
+  border: 1px solid var(--border-1);
+}
+
+.lp-banner.warn {
+  color: var(--warn);
+  border-color: rgba(201, 162, 39, 0.35);
+  background: rgba(201, 162, 39, 0.08);
+}
+
+.lp-banner.bad {
+  color: var(--sell);
+  border-color: rgba(196, 92, 92, 0.4);
+  background: rgba(196, 92, 92, 0.08);
+}
+
+.lp-attack {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 10px;
+  color: var(--text-3);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.lp-attack b {
+  font-family: var(--mono);
+  font-weight: 600;
+  color: var(--text-1);
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+.lp-panel.ask .lp-attack i { color: var(--buy); font-style: normal; }
+.lp-panel.bid .lp-attack i { color: var(--sell); font-style: normal; }
+
+.lp-plot {
+  position: relative;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  min-height: 220px;
+}
+
+.lp-plot canvas {
+  display: block;
+  max-width: 100%;
+  cursor: crosshair;
+}
+
+.lp-tip {
+  position: absolute;
+  z-index: 5;
+  min-width: 170px;
+  padding: 8px 10px;
+  border: 1px solid var(--border-2);
+  border-radius: var(--radius);
+  background: rgba(12, 14, 18, 0.96);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+  pointer-events: none;
+  font-size: 11px;
+}
+
+.lp-tip-title {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-1);
+  margin-bottom: 6px;
+}
+
+.lp-tip-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 2px 0;
+}
+
+.lp-tip-row span { color: var(--text-3); }
+.lp-tip-row b { color: var(--text-0); font-weight: 600; font-family: var(--mono); }
+.lp-tip-row b.rise { color: var(--buy); }
+.lp-tip-row b.fall { color: var(--sell); }
+
+.lp-axes {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px 12px;
+}
+
+.lp-axis-row {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  gap: 8px;
+  align-items: baseline;
+  font-size: 11px;
+}
+
+.lp-axis-row span {
+  color: var(--text-3);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  font-size: 10px;
+}
+
+.lp-axis-row b {
+  font-family: var(--mono);
+  font-weight: 650;
+  color: var(--text-0);
+}
+
+.lp-axis-row em {
+  font-style: normal;
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--text-3);
+  min-width: 2.2em;
+  text-align: right;
+}
+
+.lp-axis-row em.rise { color: var(--buy); }
+.lp-axis-row em.fall { color: var(--sell); }
+
+.lp-scores {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  border-top: 1px solid var(--border-0);
+  padding-top: 8px;
+}
+
+.lp-score {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.lp-score span {
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-3);
+}
+
+.lp-score b {
+  font-family: var(--mono);
+  font-size: 18px;
+  font-weight: 650;
+  color: var(--text-0);
+}
+
+.lp-score b i {
+  font-style: normal;
+  font-size: 11px;
+  color: var(--text-3);
+  font-weight: 500;
+}
+
+.lp-score em {
+  font-style: normal;
+  font-size: 10px;
+  color: var(--text-3);
+  font-family: var(--mono);
+}
+
+.lp-panel.ask .lp-score:first-child b { color: var(--sell); }
+.lp-panel.bid .lp-score:first-child b { color: var(--buy); }
+.lp-score:nth-child(2) b { color: var(--passive); }
+
+.lp-state {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  padding: 6px 8px;
+  border-radius: 3px;
+  border: 1px solid var(--border-1);
+  background: var(--bg-2);
+  color: var(--text-1);
+  text-align: center;
+}
+
+.lp-state.good {
+  color: var(--buy);
+  border-color: rgba(61, 154, 106, 0.35);
+  background: rgba(61, 154, 106, 0.08);
+}
+
+.lp-state.bad {
+  color: var(--sell);
+  border-color: rgba(196, 92, 92, 0.4);
+  background: rgba(196, 92, 92, 0.08);
+}
+
+.lp-state.warn {
+  color: var(--warn);
+  border-color: rgba(201, 162, 39, 0.35);
+  background: rgba(201, 162, 39, 0.08);
+}
+
+.lp-conf {
+  font-size: 10px;
+  color: var(--text-3);
+  font-family: var(--mono);
+  text-align: center;
+}
+
+@media (max-width: 900px) {
+  .lp-grid { grid-template-columns: 1fr; }
+  .lp-windows { margin-left: 0; }
+}
