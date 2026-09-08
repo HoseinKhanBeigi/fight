@@ -2777,3 +2777,120 @@ select {
 .classic-fight {
   display: contents;
 }
+
+/* ── HUGE AGGRESSION / LIQUIDITY VACUUM ALERTS ── */
+#shock-events-root {
+  grid-column: 1 / -1;
+}
+
+.shock-panel {
+  border: 1px solid var(--border-1);
+  border-radius: var(--radius);
+  background: var(--bg-2);
+  padding: 10px 12px;
+}
+
+.shock-panel.is-clear {
+  opacity: 0.72;
+}
+
+.shock-panel.has-alerts {
+  border-color: rgba(212, 137, 58, 0.45);
+  background: linear-gradient(180deg, rgba(212, 137, 58, 0.08), var(--bg-2) 48%);
+}
+
+.shock-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px 12px;
+  margin-bottom: 8px;
+}
+
+.shock-title {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-1);
+}
+
+.shock-sub {
+  font-size: 10px;
+  color: var(--text-3);
+  font-family: var(--mono);
+}
+
+.shock-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.shock-card {
+  border: 1px solid var(--border-1);
+  border-radius: var(--radius);
+  background: var(--bg-3);
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.shock-card.huge.buy {
+  border-color: rgba(61, 154, 106, 0.5);
+  box-shadow: inset 3px 0 0 var(--buy);
+}
+.shock-card.huge.sell {
+  border-color: rgba(196, 92, 92, 0.5);
+  box-shadow: inset 3px 0 0 var(--sell);
+}
+.shock-card.vacuum.up,
+.shock-card.vacuum.down {
+  border-color: rgba(139, 123, 184, 0.55);
+  box-shadow: inset 3px 0 0 var(--wall);
+}
+.shock-card.shock.buy,
+.shock-card.shock.sell {
+  border-color: rgba(212, 137, 58, 0.6);
+  box-shadow: inset 3px 0 0 var(--cancel);
+  background: rgba(212, 137, 58, 0.1);
+}
+
+.shock-card-title {
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-0);
+}
+
+.shock-card.huge.buy .shock-card-title { color: var(--buy); }
+.shock-card.huge.sell .shock-card-title { color: var(--sell); }
+.shock-card.vacuum .shock-card-title { color: var(--wall); }
+.shock-card.shock .shock-card-title { color: var(--cancel); }
+
+.shock-card-money {
+  font-family: var(--mono);
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--text-0);
+}
+
+.shock-card-detail {
+  font-size: 12px;
+  color: var(--text-1);
+  line-height: 1.35;
+}
+
+.shock-card-sec {
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--text-3);
+  line-height: 1.35;
+}
+
+@media (max-width: 900px) {
+  .shock-grid { grid-template-columns: 1fr; }
+}
