@@ -26,6 +26,10 @@ export class WindowStats {
   constructor() {
     this.aggressiveBuyVolume = 0;
     this.aggressiveSellVolume = 0;
+    this.buyCount = 0;
+    this.sellCount = 0;
+    this.largeBuyVolume = 0;
+    this.largeSellVolume = 0;
   }
 
   get netDelta() {
@@ -45,6 +49,12 @@ export class WindowStats {
     const t = this.totalVolume;
     return t > 0 ? this.aggressiveSellVolume / t : 0;
   }
+}
+
+function quantileSorted(sorted, q) {
+  if (!sorted.length) return 0;
+  const idx = Math.min(sorted.length - 1, Math.max(0, Math.floor(q * (sorted.length - 1))));
+  return sorted[idx];
 }
 
 export class AggressiveFlowTracker {
@@ -139,13 +149,26 @@ export class AggressiveFlowTracker {
     const result = {};
     for (const w of this.windows) result[w] = new WindowStats();
 
+    const sample = this.trades.length > 800 ? this.trades.slice(-800) : this.trades;
+    const sizes = sample.map((t) => t.quantity).sort((a, b) => a - b);
+    const largeThresh = quantileSorted(sizes, 0.8);
+
     for (const trade of this.trades) {
       const age = now - trade.timestamp;
       if (age < 0 || age > this.maxWindow) continue;
+      const large = trade.quantity >= largeThresh && largeThresh > 0;
       for (const w of this.windows) {
         if (age <= w) {
-          if (trade.isAggressiveBuy) result[w].aggressiveBuyVolume += trade.quantity;
-          else result[w].aggressiveSellVolume += trade.quantity;
+          const st = result[w];
+          if (trade.isAggressiveBuy) {
+            st.aggressiveBuyVolume += trade.quantity;
+            st.buyCount += 1;
+            if (large) st.largeBuyVolume += trade.quantity;
+          } else {
+            st.aggressiveSellVolume += trade.quantity;
+            st.sellCount += 1;
+            if (large) st.largeSellVolume += trade.quantity;
+          }
         }
       }
     }
