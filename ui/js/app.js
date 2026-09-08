@@ -43,6 +43,15 @@ const PREMOVE_INTERVALS = [
   { sec: 900, label: "15m" },
 ];
 
+const PREMOVE_PAINT_MS = 1000;
+const PREMOVE_EMA_TAU_SEC = 4;
+const PREMOVE_ENTER = 70;
+const PREMOVE_EXIT = 55;
+const PREMOVE_STRONG_ENTER = 80;
+const PREMOVE_STRONG_EXIT = 65;
+const PREMOVE_HOLD_MS = 3000;
+const PREMOVE_STRONG_HOLD_MS = 5000;
+
 const ui = {
   symbol: "BTCUSDT",
   interval: 60,
@@ -53,10 +62,12 @@ const ui = {
     backtest: false,
     calib: false,
   },
+  preMovePaintAt: 0,
   last: null,
   ticker24h: null,
   headerReady: false,
   switching: false,
+  displayPressure: null,
 };
 
 function $(id) {
@@ -526,6 +537,158 @@ function sidePresenceShape(s, w, px) {
     </div>`;
 }
 
+function selectedWindow(s) {
+  return Number(ui.preMoveInterval || s?.preMove?.primaryWindow || 10);
+}
+
+function pressureForSelected(s) {
+  const w = selectedWindow(s);
+  const pm = s?.preMove;
+  const cur = pm?.current;
+  const row = windowRow(pm, w);
+  const fromCurrent = Number(cur?.windowSec) === w;
+  return {
+    windowSec: w,
+    up: Number(fromCurrent ? cur.upPressure : row?.upPressure),
+    down: Number(fromCurrent ? cur.downPressure : row?.downPressure),
+    card: fromCurrent
+      ? cur
+      : Number(ui.displayPressure?.card?.windowSec) === w
+        ? ui.displayPressure.card
+        : null,
+    confidence: Number(fromCurrent ? cur?.confidence : ui.displayPressure?.confidence) || 0,
+  };
+}
+
+function emptyDisplayPressure(windowSec) {
+  return {
+    windowSec,
+    up: null,
+    down: null,
+    lastTs: 0,
+    hist: [],
+    state: "BALANCED",
+    candidate: null,
+    candidateSince: 0,
+    lastChange: 0,
+    card: null,
+    confidence: 0,
+  };
+}
+
+function emaStep(prev, next, dtSec, tau) {
+  if (!Number.isFinite(next)) return prev;
+  if (!Number.isFinite(prev)) return next;
+  const a = 1 - Math.exp(-Math.max(dtSec, 0.05) / tau);
+  return prev + a * (next - prev);
+}
+
+function trendFromHist(hist, field) {
+  if (!hist?.length) return "STABLE";
+  const now = hist[hist.length - 1];
+  const target = now.t - PREMOVE_EMA_TAU_SEC;
+  let then = hist[0][field];
+  for (const row of hist) {
+    if (row.t >= target) {
+      then = row[field];
+      break;
+    }
+    then = row[field];
+  }
+  const delta = (now[field] ?? 0) - (then ?? 0);
+  if (delta >= 12) return "RISING_FAST";
+  if (delta >= 4) return "RISING";
+  if (delta <= -12) return "FALLING_FAST";
+  if (delta <= -4) return "FALLING";
+  return "STABLE";
+}
+
+function displayCandidate(up, down, conf, committed) {
+  if (conf < 35) return "LOW_CONFIDENCE";
+  const upIn =
+    committed === "STRONG_UPSIDE_PRESSURE"
+      ? up > PREMOVE_STRONG_EXIT
+      : committed === "UPSIDE_PRESSURE"
+        ? up > PREMOVE_EXIT
+        : up >= PREMOVE_ENTER;
+  const downIn =
+    committed === "STRONG_DOWNSIDE_PRESSURE"
+      ? down > PREMOVE_STRONG_EXIT
+      : committed === "DOWNSIDE_PRESSURE"
+        ? down > PREMOVE_EXIT
+        : down >= PREMOVE_ENTER;
+
+  const strongUp = up >= PREMOVE_STRONG_ENTER || (committed === "STRONG_UPSIDE_PRESSURE" && up > PREMOVE_STRONG_EXIT);
+  const strongDown = down >= PREMOVE_STRONG_ENTER || (committed === "STRONG_DOWNSIDE_PRESSURE" && down > PREMOVE_STRONG_EXIT);
+
+  if (strongUp && !strongDown && up >= down + 8) return "STRONG_UPSIDE_PRESSURE";
+  if (strongDown && !strongUp && down >= up + 8) return "STRONG_DOWNSIDE_PRESSURE";
+  if (upIn && downIn) return "COMPRESSION";
+  if (upIn && !downIn) return "UPSIDE_PRESSURE";
+  if (downIn && !upIn) return "DOWNSIDE_PRESSURE";
+  if (up >= 50 && down >= 50 && Math.abs(up - down) < 12) return "COMPRESSION";
+  return "BALANCED";
+}
+
+function commitDisplayState(dp, now, next) {
+  dp.state = next;
+  dp.candidate = null;
+  dp.candidateSince = 0;
+  dp.lastChange = now;
+}
+
+function ingestDisplayPressure(s) {
+  const src = pressureForSelected(s);
+  const w = src.windowSec;
+  if (!ui.displayPressure || ui.displayPressure.windowSec !== w) {
+    ui.displayPressure = emptyDisplayPressure(w);
+  }
+  const dp = ui.displayPressure;
+  const now = Date.now();
+  const dtSec = dp.lastTs ? Math.min(2, (now - dp.lastTs) / 1000) : 0.25;
+  dp.lastTs = now;
+  dp.windowSec = w;
+  if (src.card && Number(src.card.windowSec) === w) dp.card = src.card;
+  dp.confidence = src.confidence;
+  dp.rawUp = src.up;
+  dp.rawDown = src.down;
+
+  if (Number.isFinite(src.up)) dp.up = emaStep(dp.up, src.up, dtSec, PREMOVE_EMA_TAU_SEC);
+  if (Number.isFinite(src.down)) dp.down = emaStep(dp.down, src.down, dtSec, PREMOVE_EMA_TAU_SEC);
+
+  dp.hist.push({ t: now, up: dp.up, down: dp.down });
+  const cutoff = now - 8000;
+  while (dp.hist.length > 2 && dp.hist[0].t < cutoff) dp.hist.shift();
+
+  const up = dp.up ?? 0;
+  const down = dp.down ?? 0;
+  const desired = displayCandidate(up, down, src.confidence, dp.state);
+
+  if (desired === dp.state) {
+    dp.candidate = null;
+    dp.candidateSince = 0;
+    return dp;
+  }
+
+  if (dp.candidate !== desired) {
+    dp.candidate = desired;
+    dp.candidateSince = now;
+    return dp;
+  }
+
+  if (now - dp.candidateSince < PREMOVE_HOLD_MS) return dp;
+
+  const strongDwell =
+    (dp.state === "STRONG_UPSIDE_PRESSURE" || dp.state === "STRONG_DOWNSIDE_PRESSURE") &&
+    desired !== "LOW_CONFIDENCE" &&
+    dp.lastChange &&
+    now - dp.lastChange < PREMOVE_STRONG_HOLD_MS;
+  if (strongDwell) return dp;
+
+  commitDisplayState(dp, now, desired);
+  return dp;
+}
+
 function signedNum(n, d = 0) {
   if (n == null || Number.isNaN(Number(n))) return "—";
   const x = Number(n);
@@ -601,22 +764,6 @@ function alignmentSummary(pm) {
   if (up > down && up >= 3) return `${up} / ${n} timeframes favor upside`;
   if (down > up && down >= 3) return `${down} / ${n} timeframes favor downside`;
   return `Split · ${up} up · ${down} down · ${align.flatCount ?? n - up - down} balanced`;
-}
-
-function momentumLine(c) {
-  const upV = Number(c.upVelocity) || 0;
-  const dnV = Number(c.downVelocity) || 0;
-  if (Math.abs(upV) < 4 && Math.abs(dnV) < 4) return "";
-  const side = (vel, trend) => {
-    if (Math.abs(vel) < 4) return prettyState(trend || "STABLE");
-    if (String(trend).includes("FAST")) return vel > 0 ? "RISING FAST" : "FALLING FAST";
-    return vel > 0 ? "RISING" : "FALLING";
-  };
-  return `<div class="pm-momentum">
-    <span class="pm-kicker">Pressure momentum</span>
-    <span class="${trendClass(c.upTrend)}">UP ${signedNum(upV)} · ${side(upV, c.upTrend)}</span>
-    <span class="${trendClass(c.downTrend)}">DOWN ${signedNum(dnV)} · ${side(dnV, c.downTrend)}</span>
-  </div>`;
 }
 
 function mainDriver(c, confirm) {
@@ -751,102 +898,9 @@ function mainDriver(c, confirm) {
   };
 }
 
-function compactWhy(c) {
-  const bd = c.breakdown || { upside: {}, downside: {} };
-  const f = c.features || {};
-  const out = [];
-  const push = (line) => {
-    if (line && !out.includes(line)) out.push(line);
-  };
-
-  for (const line of c.why || []) {
-    if (/contributions:/i.test(line)) continue;
-    if (/^UpPressure \d+\/100 vs/i.test(line)) continue;
-    if (/^DownPressure \d+\/100 vs/i.test(line)) continue;
-    if (/Confidence \d+\/100/i.test(line)) continue;
-    push(line);
-  }
-
-  const dnA = bd.downside.attackPower ?? 0;
-  const upA = bd.upside.attackPower ?? 0;
-  const bidRep = bd.downside.bidReplenishment ?? f.BidReplenishment;
-  const askRep = bd.upside.askReplenishment ?? f.AskReplenishment;
-  const bidSurv = bd.downside.bidSurvival ?? f.BidSurvival;
-  const askSurv = bd.upside.askSurvival ?? f.AskSurvival;
-  const bidCons = bd.downside.bidConsumption ?? f.BidConsumption;
-  const askCons = bd.upside.askConsumption ?? f.AskConsumption;
-
-  if (dnA >= 58) push(`Sell attack power is ${dnA}/100`);
-  if (upA >= 58) push(`Buy attack power is ${upA}/100`);
-  if (bidCons >= 60) push(`Bid consumption is ${bidCons}/100`);
-  if (askCons >= 60) push(`Ask consumption is ${askCons}/100`);
-  if (bidRep >= 65) push(`Bid replenishment remains strong (${bidRep}/100)`);
-  if (askRep >= 65) push(`Ask replenishment remains strong (${askRep}/100)`);
-  if (bidSurv >= 70) push(`Bid survival is high (${bidSurv}/100)`);
-  if (askSurv >= 70) push(`Ask survival is high (${askSurv}/100)`);
-
-  const imb = c.pressureImbalance || 0;
-  if (Math.abs(imb) < 12 && (upA >= 50 || dnA >= 50)) {
-    push("Directional pressure is therefore still balanced");
-  }
-
-  return out.slice(0, 5);
-}
-
 function factorBar(score, side) {
   const n = clampScore(score);
   return `<div class="pm-fbar ${side}"><i style="width:${n}%"></i></div><b>${n}</b>`;
-}
-
-function sparkline(history) {
-  const rows = history || [];
-  if (rows.length < 2) {
-    return `<svg class="premove-spark" viewBox="0 0 240 40" preserveAspectRatio="none"></svg>`;
-  }
-  const w = 240;
-  const h = 40;
-  const n = rows.length;
-  const xy = (r, i, key) => {
-    const x = (i / (n - 1)) * w;
-    const y = h - (Math.max(0, Math.min(100, Number(r[key]) || 0)) / 100) * (h - 8) - 4;
-    return { x, y };
-  };
-  const path = (key, color) => {
-    const pts = rows.map((r, i) => {
-      const p = xy(r, i, key);
-      return `${p.x.toFixed(1)},${p.y.toFixed(1)}`;
-    }).join(" ");
-    return `<polyline fill="none" stroke="${color}" stroke-width="1.5" points="${pts}" />`;
-  };
-  const marks = [];
-  for (let i = 1; i < n; i++) {
-    const prev = rows[i - 1];
-    const row = rows[i];
-    const p = xy(row, i, "up");
-    if (row.state && prev.state && row.state !== prev.state) {
-      marks.push(
-        `<circle cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}" r="2.2" fill="var(--warn)" />`
-      );
-    }
-    const prevImb = (prev.up || 0) - (prev.down || 0);
-    const imb = (row.up || 0) - (row.down || 0);
-    if (prevImb === 0 ? imb !== 0 : prevImb * imb <= 0 && Math.abs(imb) + Math.abs(prevImb) >= 4) {
-      marks.push(
-        `<circle cx="${p.x.toFixed(1)}" cy="${((xy(row, i, "up").y + xy(row, i, "down").y) / 2).toFixed(1)}" r="1.8" fill="var(--text-1)" />`
-      );
-    }
-    const st = String(row.state || "");
-    if (st.includes("VACUUM") && prev.state !== row.state) {
-      marks.push(
-        `<circle cx="${p.x.toFixed(1)}" cy="5" r="2" fill="var(--wall)" />`
-      );
-    }
-  }
-  return `<svg class="premove-spark" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none" aria-label="Pressure history">
-    ${path("down", "var(--sell)")}
-    ${path("up", "var(--buy)")}
-    ${marks.join("")}
-  </svg>`;
 }
 
 function contribBlocks(contrib) {
@@ -878,35 +932,56 @@ function metricRows(pairs) {
     .join("")}</div>`;
 }
 
+function dispScore(n) {
+  if (!Number.isFinite(n)) return "—";
+  return Math.round(n);
+}
+
 function renderPreMove(s) {
   const pm = s.preMove;
-  if (!pm?.current) {
+  if (!pm?.current && !pm?.byWindow) {
     return `<div class="premove"><div class="premove-title">Pre-move pressure</div><div class="fight-hint">Waiting for pre-move engine…</div></div>`;
   }
 
-  const c = pm.current;
-  const sourceWindow = Number(c.windowSec || pm.primaryWindow || ui.preMoveInterval);
-  const requested = Number(ui.preMoveInterval);
-  const bd = c.breakdown || { upside: {}, downside: {} };
-  const f = c.features || {};
+  const w = selectedWindow(s);
+  const dp = ui.displayPressure || emptyDisplayPressure(w);
+  const c =
+    dp.card && Number(dp.card.windowSec) === w
+      ? dp.card
+      : Number(pm.current?.windowSec) === w
+        ? pm.current
+        : null;
+  const bd = c?.breakdown || { upside: {}, downside: {} };
+  const f = c?.features || {};
   const confirm = pm.confirmation || {};
-  const conf = Number(c.confidence) || 0;
-  const confLow = conf < 35 || c.state === "LOW_CONFIDENCE";
-  const imb = c.pressureImbalance ?? 0;
-  const driver = mainDriver(c, confirm);
-  const why = compactWhy(c);
+  const up = dp.up;
+  const down = dp.down;
+  const imb = Number.isFinite(up) && Number.isFinite(down) ? Math.round(up - down) : 0;
+  const upTrend = trendFromHist(dp.hist, "up");
+  const downTrend = trendFromHist(dp.hist, "down");
+  const conf = Number(dp.confidence ?? c?.confidence) || 0;
+  const state = conf < 35 ? "LOW_CONFIDENCE" : dp.state;
+  const confLow = state === "LOW_CONFIDENCE" || conf < 35;
+  const driver = mainDriver(
+    {
+      ...(c || {}),
+      upPressure: dispScore(up),
+      downPressure: dispScore(down),
+      pressureImbalance: imb,
+      upTrend,
+      downTrend,
+    },
+    confirm
+  );
   const open = ui.preMoveOpen;
-
-  const upPers = prettyState(c.upPersistence?.label || "TRANSIENT");
-  const dnPers = prettyState(c.downPersistence?.label || "TRANSIENT");
 
   const tfBadges = (pm.windows || PREMOVE_INTERVALS.map((x) => x.sec))
     .map((sec) => {
       const row = windowRow(pm, sec);
       if (!row) return "";
       const bias = tfBias(row);
-      const title = `${tfLabel(sec)}\nUp Pressure     ${row.upPressure}\nDown Pressure   ${row.downPressure}\nImbalance      ${signedNum(row.pressureImbalance)}\nTrend up        ${prettyState(row.upTrend)}\nTrend down      ${prettyState(row.downTrend)}\nState           ${bias}`;
-      return `<button type="button" class="tf-badge ${tfBiasClass(bias)} ${Number(sec) === sourceWindow ? "current" : ""}" data-n="${sec}" title="${title}">
+      const title = `${tfLabel(sec)}\nUp Pressure     ${row.upPressure}\nDown Pressure   ${row.downPressure}\nImbalance      ${signedNum(row.pressureImbalance)}\nState           ${bias}`;
+      return `<button type="button" class="tf-badge ${tfBiasClass(bias)} ${Number(sec) === w ? "current" : ""}" data-n="${sec}" title="${title}">
         <em>${tfLabel(sec)}</em><b>${bias}</b>
       </button>`;
     })
@@ -918,6 +993,8 @@ function renderPreMove(s) {
     const focus = [
       "STRONG_UPSIDE_PRESSURE",
       "STRONG_DOWNSIDE_PRESSURE",
+      "UPSIDE_PRESSURE",
+      "DOWNSIDE_PRESSURE",
       "UPSIDE_PRESSURE_BUILDING",
       "DOWNSIDE_PRESSURE_BUILDING",
       "UPSIDE_LIQUIDITY_VACUUM_FORMING",
@@ -944,7 +1021,7 @@ function renderPreMove(s) {
         <thead><tr><th>State</th><th>n</th><th>Hit</th><th>Avg bps</th><th>Med bps</th><th>MAE</th><th>MFE</th><th>FP</th></tr></thead>
         <tbody>${rows}</tbody>
       </table>
-      <div class="fight-hint">10s forward · ${bt.completed || 0} completed</div>`;
+      <div class="fight-hint">10s forward · ${bt.completed || 0} completed · raw engine states</div>`;
     }
   }
 
@@ -964,45 +1041,35 @@ function renderPreMove(s) {
     <div class="premove${confLow ? " is-lowconf" : ""}">
       <div class="premove-head">
         <div class="premove-title">Pre-move pressure</div>
-        <div class="premove-tf-now">${tfLabel(sourceWindow)}</div>
+        <div class="premove-tf-now">${tfLabel(w)}</div>
         <div class="premove-tfs" id="pm-iv">
           ${PREMOVE_INTERVALS.map((it) => {
-            const on = it.sec === sourceWindow;
-            const pending = it.sec === requested && it.sec !== sourceWindow;
-            return `<button type="button" data-n="${it.sec}" class="${on ? "active" : ""} ${pending ? "pending" : ""}">${it.label}</button>`;
+            const on = it.sec === w;
+            return `<button type="button" data-n="${it.sec}" class="${on ? "active" : ""}">${it.label}</button>`;
           }).join("")}
         </div>
         <div class="premove-conf ${confLow ? "low" : ""}">CONF ${Math.round(conf)}%</div>
       </div>
 
-      <div class="premove-state ${premoveStateClass(confLow ? "LOW_CONFIDENCE" : c.state)}">
-        ${prettyState(confLow ? "LOW_CONFIDENCE" : c.state)}
-      </div>
+      <div class="premove-state ${premoveStateClass(state)}">${prettyState(state)}</div>
 
       <div class="premove-summary">
         <div class="pm-side up">
           <div class="pm-kicker">Up pressure</div>
-          <div class="pm-score">${c.upPressure ?? "—"}</div>
-          <div class="pm-meta">
-            <b class="${trendClass(c.upTrend)}">${prettyState(c.upTrend)}</b>
-            <span>${upPers}</span>
-          </div>
+          <div class="pm-score">${dispScore(up)}</div>
+          <div class="pm-meta"><b class="${trendClass(upTrend)}">${prettyState(upTrend)}</b></div>
         </div>
         <div class="pm-side down">
           <div class="pm-kicker">Down pressure</div>
-          <div class="pm-score">${c.downPressure ?? "—"}</div>
-          <div class="pm-meta">
-            <b class="${trendClass(c.downTrend)}">${prettyState(c.downTrend)}</b>
-            <span>${dnPers}</span>
-          </div>
+          <div class="pm-score">${dispScore(down)}</div>
+          <div class="pm-meta"><b class="${trendClass(downTrend)}">${prettyState(downTrend)}</b></div>
         </div>
         <div class="pm-side imb">
           <div class="pm-kicker">Imbalance</div>
           <div class="pm-score ${imb > 4 ? "up" : imb < -4 ? "down" : ""}">${signedNum(imb)}</div>
-          <div class="pm-meta"><span>${tfLabel(sourceWindow)} snapshot</span></div>
+          <div class="pm-meta"><span>${tfLabel(w)}</span></div>
         </div>
       </div>
-      ${momentumLine(c)}
 
       <div class="premove-driver">
         <div class="pm-kicker">Main driver</div>
@@ -1011,7 +1078,7 @@ function renderPreMove(s) {
       </div>
 
       <div class="premove-factors">
-        <div class="pm-kicker">Core factors · ${tfLabel(sourceWindow)}</div>
+        <div class="pm-kicker">Core factors · ${tfLabel(w)}</div>
         <div class="pm-factor-head"><span></span><span>Up</span><span>Down</span></div>
         ${[
           ["Attack", bd.upside.attackPower, bd.downside.attackPower],
@@ -1019,10 +1086,10 @@ function renderPreMove(s) {
           ["Defense weak", bd.upside.askDefenseWeakening, bd.downside.bidDefenseWeakening],
         ]
           .map(
-            ([label, up, down]) => `<div class="pm-factor">
+            ([label, u, d]) => `<div class="pm-factor">
               <span>${label}</span>
-              <div class="pm-factor-val up">${factorBar(up, "up")}</div>
-              <div class="pm-factor-val down">${factorBar(down, "down")}</div>
+              <div class="pm-factor-val up">${factorBar(u, "up")}</div>
+              <div class="pm-factor-val down">${factorBar(d, "down")}</div>
             </div>`
           )
           .join("")}
@@ -1039,25 +1106,20 @@ function renderPreMove(s) {
         </div>
       </div>
 
-      <div class="premove-spark-wrap">
-        ${sparkline(pm.history)}
-      </div>
-
-      <div class="premove-why">
-        <div class="pm-kicker">Why · ${tfLabel(sourceWindow)}</div>
-        <ul>${
-          why.length
-            ? why.map((line) => `<li>${line}</li>`).join("")
-            : "<li>Waiting for enough history to explain this state.</li>"
-        }</ul>
-      </div>
-
       <div class="premove-drawers">
         <details data-pm="metrics" ${open.metrics ? "open" : ""}>
           <summary>View detailed metrics</summary>
+          <div class="pm-rows" style="margin:8px 0">
+            <div class="pm-row"><span>Displayed Up (EMA ${PREMOVE_EMA_TAU_SEC}s)</span><b>${dispScore(up)}</b></div>
+            <div class="pm-row"><span>Raw Up</span><b>${dispScore(dp.rawUp)}</b></div>
+            <div class="pm-row"><span>Displayed Down (EMA ${PREMOVE_EMA_TAU_SEC}s)</span><b>${dispScore(down)}</b></div>
+            <div class="pm-row"><span>Raw Down</span><b>${dispScore(dp.rawDown)}</b></div>
+            <div class="pm-row"><span>Engine state</span><b>${prettyState(c?.state)}</b></div>
+            <div class="pm-row"><span>Display state</span><b>${prettyState(state)}</b></div>
+          </div>
           <div class="premove-details">
             <div>
-              <div class="pm-break-title">Upside details · ${tfLabel(sourceWindow)}</div>
+              <div class="pm-break-title">Upside details · ${tfLabel(w)}</div>
               ${metricRows([
                 ["Aggressive buy power", f.BuyAggressionPower],
                 ["Buy execution velocity", f.BuyExecutionVelocity],
@@ -1071,14 +1133,14 @@ function renderPreMove(s) {
                 ["Ask survival", bd.upside.askSurvival ?? f.AskSurvival],
                 ["Ask defense weakening", bd.upside.askDefenseWeakening],
                 ["Book preparation", bd.upside.bookPreparation],
-                ["Velocity / 10s", signedNum(c.upVelocity)],
-                ["Acceleration", signedNum(c.upAcceleration)],
-                ["Persistence score", `${c.upPersistence?.persistence ?? "—"}/100`],
-                ["Persistence duration", `${c.upPersistence?.durationSeconds ?? "—"}s`],
+                ["Raw velocity / 10s", signedNum(c?.upVelocity)],
+                ["Raw acceleration", signedNum(c?.upAcceleration)],
+                ["Persistence score", `${c?.upPersistence?.persistence ?? "—"}/100`],
+                ["Persistence duration", `${c?.upPersistence?.durationSeconds ?? "—"}s`],
               ])}
             </div>
             <div>
-              <div class="pm-break-title">Downside details · ${tfLabel(sourceWindow)}</div>
+              <div class="pm-break-title">Downside details · ${tfLabel(w)}</div>
               ${metricRows([
                 ["Aggressive sell power", f.SellAggressionPower],
                 ["Sell execution velocity", f.SellExecutionVelocity],
@@ -1092,10 +1154,10 @@ function renderPreMove(s) {
                 ["Bid survival", bd.downside.bidSurvival ?? f.BidSurvival],
                 ["Bid defense weakening", bd.downside.bidDefenseWeakening],
                 ["Book preparation", bd.downside.bookPreparation],
-                ["Velocity / 10s", signedNum(c.downVelocity)],
-                ["Acceleration", signedNum(c.downAcceleration)],
-                ["Persistence score", `${c.downPersistence?.persistence ?? "—"}/100`],
-                ["Persistence duration", `${c.downPersistence?.durationSeconds ?? "—"}s`],
+                ["Raw velocity / 10s", signedNum(c?.downVelocity)],
+                ["Raw acceleration", signedNum(c?.downAcceleration)],
+                ["Persistence score", `${c?.downPersistence?.persistence ?? "—"}/100`],
+                ["Persistence duration", `${c?.downPersistence?.durationSeconds ?? "—"}s`],
               ])}
             </div>
           </div>
@@ -1111,10 +1173,10 @@ function renderPreMove(s) {
         </details>
         <details data-pm="contrib" ${open.contrib ? "open" : ""}>
           <summary>Score contributions</summary>
-          <div class="pm-kicker">UpPressure = ${c.upPressure}</div>
-          ${contribBlocks(c.upContributions)}
-          <div class="pm-kicker" style="margin-top:10px">DownPressure = ${c.downPressure}</div>
-          ${contribBlocks(c.downContributions)}
+          <div class="pm-kicker">Raw UpPressure = ${c?.upPressure ?? "—"}</div>
+          ${contribBlocks(c?.upContributions)}
+          <div class="pm-kicker" style="margin-top:10px">Raw DownPressure = ${c?.downPressure ?? "—"}</div>
+          ${contribBlocks(c?.downContributions)}
         </details>
         <details data-pm="backtest" ${open.backtest ? "open" : ""}>
           <summary>Backtest Lab</summary>
@@ -1137,7 +1199,20 @@ function renderPreMove(s) {
   `;
 }
 
-function renderFight(s) {
+function ensureFightShell() {
+  const el = $("fight");
+  if (el.querySelector("#premove-root") && el.querySelector("#battle-root")) return;
+  el.innerHTML = `<div id="premove-root"></div><div id="battle-root"></div>`;
+}
+
+function paintPreMove(s) {
+  ensureFightShell();
+  $("premove-root").innerHTML = renderPreMove(s);
+  bindPreMoveButtons();
+}
+
+function paintBattle(s) {
+  ensureFightShell();
   const px = s.price ?? s.bestBid ?? s.bestAsk;
   const w = ui.interval;
   const tf = INTERVALS.find((it) => it.sec === w)?.label || `${w}s`;
@@ -1145,26 +1220,20 @@ function renderFight(s) {
   const buy = pack?.buy;
   const sell = pack?.sell;
 
-  // Prefer battle-engine cards; fallback message if server not yet upgraded
   if (!buy && !sell) {
-    $("fight").innerHTML = `
-      ${renderPreMove(s)}
+    $("battle-root").innerHTML = `
       <div class="fight-card buy"><div class="fight-hint">Waiting for battle engine… restart the server if this persists.</div></div>
       <div class="fight-card sell"><div class="fight-hint">Waiting for battle engine…</div></div>
     `;
-    bindPreMoveButtons();
     return;
   }
 
-  $("fight").innerHTML = `
-    ${renderPreMove(s)}
+  $("battle-root").innerHTML = `
     ${sidePresenceShape(s, w, px)}
     ${renderBattleCard(buy, px, "buy", "Aggressive buyers", "Passive asks", tf)}
     ${renderBattleCard(sell, px, "sell", "Aggressive sellers", "Passive bids", tf)}
   `;
-  bindPreMoveButtons();
 
-  // Mirror primary interaction state into header when available
   const lead = buy?.state || sell?.state;
   if (lead && $("h-state") && !ui.switching) {
     $("h-state").textContent = prettyState(lead);
@@ -1172,24 +1241,25 @@ function renderFight(s) {
   }
 }
 
+function renderFight(s) {
+  paintPreMove(s);
+  paintBattle(s);
+}
+
 function bindPreMoveButtons() {
+  const pickTf = (n) => {
+    if (!n || n === ui.preMoveInterval) return;
+    ui.preMoveInterval = n;
+    ui.displayPressure = null;
+    ui.preMovePaintAt = 0;
+    send({ type: "setPreMoveWindow", windowSec: n });
+    if (ui.last) renderAll(ui.last, true);
+  };
   $("pm-iv")?.querySelectorAll("button").forEach((btn) => {
-    btn.addEventListener("click", () => {
-      const n = Number(btn.dataset.n);
-      if (!n || n === ui.preMoveInterval) return;
-      ui.preMoveInterval = n;
-      send({ type: "setPreMoveWindow", windowSec: n });
-      if (ui.last) renderFight(ui.last);
-    });
+    btn.addEventListener("click", () => pickTf(Number(btn.dataset.n)));
   });
   document.querySelectorAll(".tf-badge[data-n]").forEach((btn) => {
-    btn.addEventListener("click", () => {
-      const n = Number(btn.dataset.n);
-      if (!n || n === ui.preMoveInterval) return;
-      ui.preMoveInterval = n;
-      send({ type: "setPreMoveWindow", windowSec: n });
-      if (ui.last) renderFight(ui.last);
-    });
+    btn.addEventListener("click", () => pickTf(Number(btn.dataset.n)));
   });
   document.querySelectorAll(".premove-drawers details[data-pm]").forEach((el) => {
     el.addEventListener("toggle", () => {
@@ -1225,6 +1295,8 @@ function switchSymbol(next) {
   if (sel) sel.value = sym;
   syncWatchlistChips();
   send({ type: "setSymbol", symbol: sym.toLowerCase() });
+  ui.displayPressure = null;
+  ui.preMovePaintAt = 0;
 }
 
 function ensureHeader() {
@@ -1294,7 +1366,7 @@ function ensureHeader() {
       if (!n || n === ui.interval) return;
       ui.interval = n;
       syncIntervalButtons();
-      if (ui.last) renderFight(ui.last);
+      if (ui.last) paintBattle(ui.last);
     });
   });
 
@@ -1360,11 +1432,16 @@ function renderHeader(s) {
   conn.title = s?.status || "";
 }
 
-function renderAll(s) {
+function renderAll(s, forcePaint = false) {
   ui.last = s;
+  ingestDisplayPressure(s);
   renderHeader(s);
-  renderFight(s);
-  renderFooter();
+  paintBattle(s);
+  const now = Date.now();
+  if (forcePaint || now - ui.preMovePaintAt >= PREMOVE_PAINT_MS) {
+    ui.preMovePaintAt = now;
+    paintPreMove(s);
+  }
 }
 
 let ws;
@@ -1378,6 +1455,7 @@ function connect() {
 
   ws.onopen = () => {
     send({ type: "setSymbol", symbol: ui.symbol.toLowerCase() });
+    send({ type: "setPreMoveWindow", windowSec: ui.preMoveInterval });
   };
 
   ws.onmessage = (msg) => {
