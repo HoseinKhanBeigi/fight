@@ -606,8 +606,19 @@ function renderBattleCard(card, px, sideClass, titleAgg, titlePas, tf, multiVenu
           : "plp-state";
 
   const responseBody = [
+    row(
+      "Absorbed",
+      r.estimatedAbsorbedFlow == null
+        ? `<b class="nodata">NO DATA</b>`
+        : `${moneyPrimary(r.estimatedAbsorbedFlow, px)}<small>est. USD soaked</small>`
+    ),
+    row(
+      "Absorption score",
+      r.absorptionScore == null
+        ? `<b class="nodata">NO DATA</b>`
+        : `<b class="absorb">${fmtScore(r.absorptionScore)}</b><small>0–100 strength</small>`
+    ),
     row(L.efficiency || "Price Efficiency", `<b>${fmtScore(r.efficiency)}</b>`),
-    row(L.absorption || "Absorption", `<b class="absorb">${fmtScore(r.absorptionScore)}</b>`),
     row("Price Move", `<b>${fmtBps(r.priceMoveBps)}</b>`),
   ].join("");
 
