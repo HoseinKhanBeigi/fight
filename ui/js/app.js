@@ -235,29 +235,25 @@ function passiveProfileState(card, isBuy) {
   return isBuy ? "ASK_LIQUIDITY_STABLE" : "BIDS_HOLDING";
 }
 
-/** Cancelled / Refilled / Consumed composition (activity only — not current depth). */
+/** Cancelled / Refilled composition only — Consumed has its own shape. */
 function passiveActivityBar(d) {
-  if (d?.cancelled == null && d?.replenished == null && d?.consumed == null) return "";
+  if (d?.cancelled == null && d?.replenished == null) return "";
   const c = Number.isFinite(Number(d.cancelled)) ? Math.max(0, Number(d.cancelled)) : 0;
   const r = Number.isFinite(Number(d.replenished)) ? Math.max(0, Number(d.replenished)) : 0;
-  const x = Number.isFinite(Number(d.consumed)) ? Math.max(0, Number(d.consumed)) : 0;
-  const tot = c + r + x;
+  const tot = c + r;
   if (tot <= 0) {
-    return `<div class="plp-bar empty" title="No passive activity in window"></div>`;
+    return `<div class="plp-bar empty" title="No cancel/refill activity in window"></div>`;
   }
   const pc = (c / tot) * 100;
   const pr = (r / tot) * 100;
-  const px = (x / tot) * 100;
   return `
-    <div class="plp-bar" title="Cancelled ${pc.toFixed(0)}% · Refilled ${pr.toFixed(0)}% · Consumed ${px.toFixed(0)}%">
+    <div class="plp-bar" title="Cancelled ${pc.toFixed(0)}% · Refilled ${pr.toFixed(0)}%">
       <i class="cancel" style="width:${pc}%"></i>
       <i class="refill" style="width:${pr}%"></i>
-      <i class="exec" style="width:${px}%"></i>
     </div>
     <div class="plp-bar-legend">
       <span class="cancel">Cancelled</span>
       <span class="refill">Refilled</span>
-      <span class="exec">Consumed</span>
     </div>`;
 }
 
@@ -299,6 +295,104 @@ function clampScore(n, fallback = 0) {
   const x = Number(n);
   if (!Number.isFinite(x)) return fallback;
   return Math.max(0, Math.min(100, x));
+}
+
+/**
+ * Separate bridge shape: Aggressive flow vs Consumed resting liquidity.
+ * Sits between Passive Liquidity and Absorption (Response).
+ * Consumed ≠ Aggressive — they are related but separately measured.
+ */
+function consumedShape(card, px, sideClass) {
+  const a = card?.attack || {};
+  const d = card?.defense || {};
+  const isBuy = sideClass === "buy";
+  const aggLabel = isBuy ? "Aggressive Buy" : "Aggressive Sell";
+  const consLabel = isBuy ? "Ask Consumed" : "Bid Consumed";
+
+  const aggQty = a.aggressiveVolume;
+  const consQty = d.consumed;
+  const missingAgg = aggQty == null || Number.isNaN(Number(aggQty));
+  const missingCons = consQty == null || Number.isNaN(Number(consQty));
+
+  const aggUsd = missingAgg ? null : notional(aggQty, px);
+  const consUsd = missingCons ? null : notional(consQty, px);
+  const maxUsd = Math.max(aggUsd || 0, consUsd || 0, 1e-9);
+  const aggPct = missingAgg ? 0 : Math.round(((aggUsd || 0) / maxUsd) * 100);
+  const consPct = missingCons ? 0 : Math.round(((consUsd || 0) / maxUsd) * 100);
+
+  let ratioHtml = `<b class="nodata">NO DATA</b>`;
+  let read = "WAITING";
+  let readClass = "wait";
+  if (!missingAgg && !missingCons) {
+    const ratio = (consUsd || 0) / Math.max(aggUsd || 0, 1e-9);
+    ratioHtml = `<b>${(ratio * 100).toFixed(0)}%</b><small>consumed / aggressive</small>`;
+    if ((aggUsd || 0) <= 0 && (consUsd || 0) <= 0) {
+      read = "NO FLOW";
+      readClass = "wait";
+    } else if (ratio >= 1.15) {
+      read = "CONSUMED > ATTACK";
+      readClass = "cons-lead";
+    } else if (ratio >= 0.85) {
+      read = "MATCHED HIT";
+      readClass = "matched";
+    } else if (ratio >= 0.45) {
+      read = "PARTIAL HIT";
+      readClass = "partial";
+    } else {
+      read = "LOW HIT · THIN FILL";
+      readClass = "thin";
+    }
+  } else if (missingAgg && missingCons) {
+    read = "NO DATA";
+  } else if (missingCons) {
+    read = "CONSUMED MISSING";
+  } else {
+    read = "ATTACK MISSING";
+  }
+
+  const bubble = (kind, label, usd, pct, missing) => {
+    const size = missing ? 36 : 34 + Math.round((pct / 100) * 28);
+    return `
+      <div class="cons-bubble ${kind}" style="width:${size}px;height:${size}px" title="${label}">
+        <span class="cons-bubble-lab">${kind === "agg" ? "ATK" : "CON"}</span>
+      </div>
+      <div class="cons-meta">
+        <span>${label}</span>
+        ${missing ? `<b class="nodata">NO DATA</b>` : `<b>${fmtUsd(usd)}</b>`}
+        ${
+          !missing && d.consumePercentile != null && kind === "cons"
+            ? `<small>${fmtPctile(d.consumePercentile)} percentile</small>`
+            : !missing && a.percentile != null && kind === "agg"
+              ? `<small>${fmtPctile(a.percentile)} percentile</small>`
+              : ""
+        }
+      </div>`;
+  };
+
+  return `
+    <div class="battle-sec cons-sec">
+      <div class="battle-sec-title">Consumed · Aggressive → Resting</div>
+      <div class="cons-shape" aria-label="Aggressive versus consumed liquidity">
+        <div class="cons-pair">
+          ${bubble("agg", aggLabel, aggUsd, aggPct, missingAgg)}
+          <div class="cons-vs">→</div>
+          ${bubble("cons", consLabel, consUsd, consPct, missingCons)}
+        </div>
+        <div class="cons-bars">
+          <div class="cons-bar-row">
+            <span>Aggressive</span>
+            <div class="cons-track"><i class="agg" style="width:${aggPct}%"></i></div>
+          </div>
+          <div class="cons-bar-row">
+            <span>Consumed</span>
+            <div class="cons-track"><i class="cons" style="width:${consPct}%"></i></div>
+          </div>
+        </div>
+        <div class="cons-ratio">${row("Hit ratio", ratioHtml)}</div>
+        <div class="cons-read ${readClass}">${read}</div>
+        <div class="cons-note">Aggressive = tape · Consumed = resting liquidity removed by trades · not the same metric</div>
+      </div>
+    </div>`;
 }
 
 /**
@@ -488,10 +582,6 @@ function renderBattleCard(card, px, sideClass, titleAgg, titlePas, tf, multiVenu
         : `${usdOrNoData(allUsd)}<small>${liveN || 0} venues · current depth</small>`
     ),
     row(
-      "Consumed",
-      moneyPrimary(d.consumed, px, { percentile: d.consumePercentile, band: d.consumeBand })
-    ),
-    row(
       "Cancelled",
       moneyPrimary(d.cancelled, px, { percentile: d.cancelPercentile, band: d.cancelBand })
     ),
@@ -541,7 +631,8 @@ function renderBattleCard(card, px, sideClass, titleAgg, titlePas, tf, multiVenu
         ${passiveBody}
         <div class="${profileStateClass}">${prettyState(profileState)}</div>
       </div>
-      ${section("Response", responseBody)}
+      ${consumedShape(card, px, sideClass)}
+      ${section("Response · Absorption", responseBody)}
       <div class="fight-result ${stateClass(card.state)}">${prettyState(card.state)}</div>
       <div class="fight-why">${card.why || ""}</div>
       ${

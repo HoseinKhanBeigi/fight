@@ -2601,3 +2601,169 @@ select {
   .mv-grid { grid-template-columns: 1fr 1fr; }
   .mv-totals { margin-left: 0; width: 100%; }
 }
+
+/* ── CONSUMED bridge (Aggressive → Resting) ── */
+.cons-sec {
+  gap: 6px;
+}
+
+.cons-shape {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 8px;
+  border: 1px solid var(--border-1);
+  border-radius: var(--radius);
+  background: var(--bg-2);
+}
+
+.cons-pair {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.cons-bubble {
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+  border: 1px solid var(--border-2);
+}
+
+.cons-bubble.agg {
+  background: color-mix(in srgb, var(--buy) 28%, var(--bg-3));
+  border-color: color-mix(in srgb, var(--buy) 55%, var(--border-1));
+}
+
+.fight-card.sell .cons-bubble.agg {
+  background: color-mix(in srgb, var(--sell) 28%, var(--bg-3));
+  border-color: color-mix(in srgb, var(--sell) 55%, var(--border-1));
+}
+
+.cons-bubble.cons {
+  background: color-mix(in srgb, var(--exec) 26%, var(--bg-3));
+  border-color: color-mix(in srgb, var(--exec) 55%, var(--border-1));
+}
+
+.cons-bubble-lab {
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  color: var(--text-0);
+}
+
+.cons-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+  flex: 1;
+}
+
+.cons-meta span {
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-3);
+}
+
+.cons-meta b {
+  font-family: var(--mono);
+  font-size: 13px;
+  font-weight: 650;
+  color: var(--text-0);
+}
+
+.cons-meta small {
+  font-family: var(--mono);
+  font-size: 9px;
+  color: var(--text-3);
+}
+
+.cons-vs {
+  font-size: 14px;
+  color: var(--text-3);
+  flex: 0 0 auto;
+}
+
+.cons-bars {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.cons-bar-row {
+  display: grid;
+  grid-template-columns: 72px 1fr;
+  gap: 8px;
+  align-items: center;
+  font-size: 10px;
+  color: var(--text-3);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.cons-track {
+  height: 7px;
+  border-radius: 2px;
+  background: var(--bg-4);
+  overflow: hidden;
+  border: 1px solid var(--border-0);
+}
+
+.cons-track i {
+  display: block;
+  height: 100%;
+}
+
+.cons-track i.agg { background: var(--buy); }
+.fight-card.sell .cons-track i.agg { background: var(--sell); }
+.cons-track i.cons { background: var(--exec); }
+
+.cons-ratio .battle-row {
+  padding: 0;
+}
+
+.cons-read {
+  text-align: center;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: 5px 6px;
+  border-radius: 3px;
+  border: 1px solid var(--border-1);
+  color: var(--text-1);
+  background: var(--bg-3);
+}
+
+.cons-read.matched {
+  color: var(--buy);
+  border-color: rgba(61, 154, 106, 0.35);
+  background: rgba(61, 154, 106, 0.08);
+}
+
+.cons-read.cons-lead {
+  color: var(--exec);
+  border-color: rgba(61, 154, 106, 0.45);
+  background: rgba(61, 154, 106, 0.1);
+}
+
+.cons-read.partial {
+  color: var(--warn);
+  border-color: rgba(201, 162, 39, 0.35);
+  background: rgba(201, 162, 39, 0.08);
+}
+
+.cons-read.thin,
+.cons-read.wait {
+  color: var(--text-2);
+}
+
+.cons-note {
+  font-size: 9px;
+  color: var(--text-3);
+  line-height: 1.35;
+}
