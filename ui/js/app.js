@@ -216,6 +216,20 @@ function moneyOrNoData(qty, price) {
   return usdLine(qty, price);
 }
 
+/** Primary USD notional + optional secondary percentile / band. Never fakes $0 for missing. */
+function moneyPrimary(qty, price, { percentile = null, band = null, signed = false, snapshot = false } = {}) {
+  if (qty == null || Number.isNaN(Number(qty))) return `<b class="nodata">NO DATA</b>`;
+  const n = notional(qty, price);
+  let money = fmtUsd(n);
+  if (signed && n > 0) money = `+${money}`;
+  const bits = [];
+  if (percentile != null && Number.isFinite(Number(percentile))) bits.push(`${fmtPctile(percentile)} percentile`);
+  else if (band && band !== "UNKNOWN") bits.push(band);
+  if (snapshot) bits.push("current depth");
+  const tip = `${fmt(qty)} base @ ${fmtPx(price)}`;
+  return `<b title="${tip}">${money}</b>${bits.length ? `<small>${bits.join(" · ")}</small>` : ""}`;
+}
+
 function row(label, valueHtml) {
   return `<div class="battle-row"><span class="k">${label}</span><span class="v">${valueHtml}</span></div>`;
 }
@@ -226,6 +240,107 @@ function section(title, body) {
 
 function prettyState(state = "") {
   return String(state || "NEUTRAL").replace(/_/g, " ");
+}
+
+/**
+ * Display-only passive profile state (uses existing percentile / passiveState context).
+ * Does not alter battle engine classification.
+ */
+function passiveProfileState(card, isBuy) {
+  const d = card?.defense || {};
+  const q = d.dataQuality || card?.passiveState;
+  if (q === "NO_DATA" || card?.passiveState === "NO_DATA") return "NO_DATA";
+  if (q === "STALE" || card?.passiveState === "STALE") return "STALE";
+  if (q === "LOW_CONFIDENCE" || card?.passiveState === "LOW_CONFIDENCE") return "LOW_CONFIDENCE";
+
+  const ps = String(card?.passiveState || "");
+  const cancelP = Number(d.cancelPercentile);
+  const refillP = Number(d.refillPercentile);
+  const churn = String(d.churnLabel || "");
+
+  if (ps === "ASK_CANCELLATION_SURGE" || ps === "BID_CANCELLATION_SURGE") {
+    return isBuy ? "ASK_CANCELLATION_DOMINANT" : "BID_CANCELLATION_DOMINANT";
+  }
+  if (ps === "ASK_REPLENISHMENT_SURGE" || ps === "BID_REPLENISHMENT_SURGE") {
+    return isBuy ? "ASK_REPLENISHMENT_DOMINANT" : "BID_REPLENISHMENT_DOMINANT";
+  }
+  if (
+    (churn === "HIGH_CHURN" || churn === "EXTREME_CHURN") &&
+    Number.isFinite(cancelP) &&
+    Number.isFinite(refillP) &&
+    cancelP >= 70 &&
+    refillP >= 70
+  ) {
+    return isBuy ? "ASK_HIGH_CHURN" : "BID_HIGH_CHURN";
+  }
+  if (ps === "ASK_LIQUIDITY_WITHDRAWING" || ps === "BID_LIQUIDITY_WITHDRAWING") return ps;
+  if (ps === "ASK_LIQUIDITY_BUILDING" || ps === "BID_LIQUIDITY_BUILDING") return ps;
+  if (ps === "ASK_LIQUIDITY_STABLE") return "ASK_LIQUIDITY_STABLE";
+  if (ps === "BID_LIQUIDITY_STABLE") return "BIDS_HOLDING";
+  if (ps === "ASK_SURVIVING") return "ASK_LIQUIDITY_STABLE";
+  if (ps === "BID_SURVIVING") return "BIDS_HOLDING";
+  if (ps) return ps;
+  return isBuy ? "ASK_LIQUIDITY_STABLE" : "BIDS_HOLDING";
+}
+
+/** Cancelled / Refilled / Consumed composition (activity only — not current depth). */
+function passiveActivityBar(d) {
+  if (d?.cancelled == null && d?.replenished == null && d?.consumed == null) return "";
+  const c = Number.isFinite(Number(d.cancelled)) ? Math.max(0, Number(d.cancelled)) : 0;
+  const r = Number.isFinite(Number(d.replenished)) ? Math.max(0, Number(d.replenished)) : 0;
+  const x = Number.isFinite(Number(d.consumed)) ? Math.max(0, Number(d.consumed)) : 0;
+  const tot = c + r + x;
+  if (tot <= 0) {
+    return `<div class="plp-bar empty" title="No passive activity in window"></div>`;
+  }
+  const pc = (c / tot) * 100;
+  const pr = (r / tot) * 100;
+  const px = (x / tot) * 100;
+  return `
+    <div class="plp-bar" title="Cancelled ${pc.toFixed(0)}% · Refilled ${pr.toFixed(0)}% · Consumed ${px.toFixed(0)}%">
+      <i class="cancel" style="width:${pc}%"></i>
+      <i class="refill" style="width:${pr}%"></i>
+      <i class="exec" style="width:${px}%"></i>
+    </div>
+    <div class="plp-bar-legend">
+      <span class="cancel">Cancelled</span>
+      <span class="refill">Refilled</span>
+      <span class="exec">Consumed</span>
+    </div>`;
+}
+
+/**
+ * Net Withdrawal when NewAdded (stacked) is unavailable / unused.
+ * Net Change = stacked + refilled − cancelled − consumed when stacked is present.
+ */
+function passiveNetRow(d, px) {
+  const cancelled = d.cancelled;
+  const replenished = d.replenished;
+  const consumed = d.consumed;
+  const stacked = d.stacked;
+  const hasNewAdded = stacked != null && Number(stacked) > 0;
+
+  // NewAdded / stack not available → Net Withdrawal = Cancelled − Refilled
+  if (!hasNewAdded) {
+    if (cancelled == null || replenished == null) {
+      return row("Net Withdrawal", `<b class="nodata">NO DATA</b>`);
+    }
+    const net = Number(cancelled) - Number(replenished);
+    if (!Number.isFinite(net)) return row("Net Withdrawal", `<b class="nodata">NO DATA</b>`);
+    if (net >= 0) return row("Net Withdrawal", moneyPrimary(net, px));
+    return row("Net Addition", moneyPrimary(Math.abs(net), px, { signed: true }));
+  }
+
+  // Incomplete inputs → do not invent Net Change
+  if (cancelled == null || replenished == null || consumed == null) {
+    return row("Net Change", `<b class="nodata">NO DATA</b>`);
+  }
+  const net =
+    d.behavioralNetChange != null
+      ? Number(d.behavioralNetChange)
+      : Number(stacked) + Number(replenished) - Number(cancelled) - Number(consumed);
+  if (!Number.isFinite(net)) return row("Net Change", `<b class="nodata">NO DATA</b>`);
+  return row("Net Change", moneyPrimary(net, px, { signed: true }));
 }
 
 function clampScore(n, fallback = 0) {
@@ -337,47 +452,57 @@ function renderBattleCard(card, px, sideClass, titleAgg, titlePas, tf) {
   const d = card.defense || {};
   const r = card.response || {};
   const L = card.labels || {};
+  const isBuy = sideClass === "buy";
   const absorbing = (r.absorptionScore || 0) >= 65;
+  const aggLabel = isBuy ? "Aggressive Buy" : "Aggressive Sell";
+  const depthPct =
+    d.features?.depth != null && Number.isFinite(Number(d.features.depth))
+      ? Number(d.features.depth)
+      : null;
 
   const attackBody = [
-    row(L.aggressive || "Aggressive Volume", moneyOrNoData(a.aggressiveVolume, px)),
-    row("Power", `<b>${fmtScore(a.power)}</b>`),
-    row("Percentile", `<b>${fmtPctile(a.percentile)}</b><small>${a.percentileBand || ""}</small>`),
-    row(
-      "Velocity",
-      a.velocity == null
-        ? `<b class="nodata">NO DATA</b>`
-        : `<b>${fmtUsd(notional(a.velocity, px))}/s</b>`
-    ),
+    row(aggLabel, moneyPrimary(a.aggressiveVolume, px, { percentile: a.percentile, band: a.percentileBand })),
   ].join("");
 
-  const netLabel =
-    (d.netWithdrawal || 0) >= (d.netAddition || 0) ? "Net Withdrawal" : "Net Addition";
-  const netVal =
-    (d.netWithdrawal || 0) >= (d.netAddition || 0) ? d.netWithdrawal : d.netAddition;
-
-  const defenseBody = [
-    row(L.liquidity || "Liquidity", moneyOrNoData(d.currentLiquidity, px)),
-    row(L.consumed || "Consumed", moneyOrNoData(d.consumed, px)),
-    row(L.cancelled || "Cancelled", moneyOrNoData(d.cancelled, px)),
-    row(L.replenished || "Replenished", moneyOrNoData(d.replenished, px)),
-    row(netLabel, moneyOrNoData(netVal, px)),
-    row("Survival", `<b>${fmtScore(d.survival)}</b>`),
-    row("Withdrawal", `<b>${fmtScore(d.withdrawal)}</b>`),
+  const passiveBody = [
     row(
-      "Cancel context",
-      `<b>${fmtPctile(d.cancelPercentile)}</b><small>${d.cancelBand || ""}</small>`
+      "Current",
+      moneyPrimary(d.currentLiquidity, px, {
+        percentile: depthPct,
+        snapshot: true,
+      })
     ),
-    row("Churn", `<b>${prettyState(d.churnLabel)}</b>`),
+    row(
+      "Consumed",
+      moneyPrimary(d.consumed, px, { percentile: d.consumePercentile, band: d.consumeBand })
+    ),
+    row(
+      "Cancelled",
+      moneyPrimary(d.cancelled, px, { percentile: d.cancelPercentile, band: d.cancelBand })
+    ),
+    row(
+      "Refilled",
+      moneyPrimary(d.replenished, px, { percentile: d.refillPercentile, band: d.refillBand })
+    ),
+    passiveNetRow(d, px),
   ].join("");
+
+  const profileState = passiveProfileState(card, isBuy);
+  const profileStateClass =
+    profileState === "NO_DATA" || profileState === "STALE" || profileState === "LOW_CONFIDENCE"
+      ? "plp-state warn"
+      : profileState.includes("WITHDRAW") || profileState.includes("CANCELLATION")
+        ? "plp-state bad"
+        : profileState.includes("BUILD") ||
+            profileState.includes("REPLENISH") ||
+            profileState.includes("HOLD") ||
+            profileState.includes("STABLE")
+          ? "plp-state good"
+          : "plp-state";
 
   const responseBody = [
     row(L.efficiency || "Price Efficiency", `<b>${fmtScore(r.efficiency)}</b>`),
     row(L.absorption || "Absorption", `<b class="absorb">${fmtScore(r.absorptionScore)}</b>`),
-    row(
-      "Estimated Absorbed Flow",
-      `<b class="absorb">${fmtUsd(notional(r.estimatedAbsorbedFlow, px))}</b><small>estimate</small>`
-    ),
     row("Price Move", `<b>${fmtBps(r.priceMoveBps)}</b>`),
   ].join("");
 
@@ -395,7 +520,12 @@ function renderBattleCard(card, px, sideClass, titleAgg, titlePas, tf) {
       </div>
       ${flowShape(card, sideClass)}
       ${section("Attack", attackBody)}
-      ${section("Defense", defenseBody)}
+      <div class="battle-sec plp">
+        <div class="battle-sec-title">Passive Liquidity</div>
+        ${passiveActivityBar(d)}
+        ${passiveBody}
+        <div class="${profileStateClass}">${prettyState(profileState)}</div>
+      </div>
       ${section("Response", responseBody)}
       <div class="fight-result ${stateClass(card.state)}">${prettyState(card.state)}</div>
       <div class="fight-why">${card.why || ""}</div>
@@ -1699,8 +1829,9 @@ function renderFooter() {
   $("footer").innerHTML = `
     <div class="note" style="grid-column:1/-1">
       Attack = aggressive trade flow · Defense = passive book behavior · Response = price efficiency + absorption score.
+      Fight cards show Passive Liquidity in real USD (current depth + window consumed/cancelled/refilled) — absorption stays in Response only.
       Battle charts plot normalized Attack vs Defense only (0–100) — never raw dollars.
-      Passive liquidity profile = radar of replenishment / survival / cancellation / consumption (percentile 0–100). Absorption stays outside the shape.
+      Passive liquidity profile radar = replenishment / survival / cancellation / consumption (percentile 0–100). Absorption stays outside the shape.
       Pre-move pressure uses book preparation, attack, and defense weakening only — never future price.
       Consumed ≠ Aggressive (aggressive is already executed tape; consumed is resting liquidity removed by trades).
       Surges use rolling percentiles, not raw dollar cutoffs.

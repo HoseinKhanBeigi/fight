@@ -925,6 +925,81 @@ select {
   letter-spacing: 0.04em;
 }
 
+/* Passive Liquidity Profile (money-first) inside fight cards */
+.battle-sec.plp {
+  gap: 6px;
+}
+
+.plp-bar {
+  display: flex;
+  height: 8px;
+  border-radius: 2px;
+  overflow: hidden;
+  background: var(--bg-4);
+  border: 1px solid var(--border-0);
+}
+
+.plp-bar.empty {
+  opacity: 0.4;
+}
+
+.plp-bar i {
+  display: block;
+  height: 100%;
+  min-width: 0;
+}
+
+.plp-bar i.cancel { background: var(--cancel); }
+.plp-bar i.refill { background: var(--refill); }
+.plp-bar i.exec { background: var(--exec); }
+
+.plp-bar-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  font-size: 9px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-3);
+  margin-bottom: 2px;
+}
+
+.plp-bar-legend .cancel { color: var(--cancel); }
+.plp-bar-legend .refill { color: var(--refill); }
+.plp-bar-legend .exec { color: var(--exec); }
+
+.plp-state {
+  margin-top: 4px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  text-align: center;
+  padding: 6px 8px;
+  border-radius: 3px;
+  border: 1px solid var(--border-1);
+  background: var(--bg-2);
+  color: var(--text-1);
+}
+
+.plp-state.good {
+  color: var(--buy);
+  border-color: rgba(61, 154, 106, 0.35);
+  background: rgba(61, 154, 106, 0.08);
+}
+
+.plp-state.bad {
+  color: var(--cancel);
+  border-color: rgba(212, 137, 58, 0.4);
+  background: rgba(212, 137, 58, 0.08);
+}
+
+.plp-state.warn {
+  color: var(--warn);
+  border-color: rgba(201, 162, 39, 0.35);
+  background: rgba(201, 162, 39, 0.08);
+}
+
 .fight-why {
   font-size: 11px;
   line-height: 1.4;
