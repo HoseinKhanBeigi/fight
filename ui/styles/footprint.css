@@ -2767,3 +2767,13 @@ select {
   color: var(--text-3);
   line-height: 1.35;
 }
+
+/* Classic fight summary sits at the very top of #fight */
+#classic-fight-root {
+  grid-column: 1 / -1;
+  display: contents;
+}
+
+.classic-fight {
+  display: contents;
+}

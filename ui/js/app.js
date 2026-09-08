@@ -95,6 +95,182 @@ function usdLine(qty, price) {
   return `<b title="${fmt(qty)} base @ ${fmtPx(price)}">${fmtUsd(n)}</b><small>${fmt(qty)}</small>`;
 }
 
+/** Price band where a metric was observed, e.g. 76900 – 80500 */
+function fmtRange(range) {
+  if (!range || range.lo == null || range.hi == null) return "";
+  const lo = Number(range.lo);
+  const hi = Number(range.hi);
+  if (!Number.isFinite(lo) || !Number.isFinite(hi)) return "";
+  if (Math.abs(hi - lo) < 1e-12) return fmtPx(lo);
+  return `${fmtPx(lo)} – ${fmtPx(hi)}`;
+}
+
+function statLine(label, qty, price, range, cls = "", absorbTag = "") {
+  const band = fmtRange(range);
+  const tag = absorbTag
+    ? `<em class="absorb-tag" title="Absorption estimate">${absorbTag}</em>`
+    : "";
+  return `<span class="${cls}${absorbTag ? " absorbing" : ""}">${label} ${usdLine(qty, price)}${
+    tag
+  }${band ? `<em class="px-band" title="Price window for this metric">${band}</em>` : ""}</span>`;
+}
+
+function battleShare(battle) {
+  const attack = Math.min(Number(battle?.attackScore) || 0, 3) / 3;
+  const exec = Math.max(0, Math.min(1, Number(battle?.executionRatio) || 0));
+  const refill = Math.max(0, Math.min(1, Number(battle?.refillRatio) || 0));
+  const force = Math.max(
+    0.05,
+    Math.min(0.95, 0.5 * attack + 0.35 * exec + 0.15 * (1 - refill))
+  );
+  return { force, resist: 1 - force };
+}
+
+function mergeRanges(a, b) {
+  if (!a && !b) return null;
+  if (!a) return b;
+  if (!b) return a;
+  return {
+    lo: Math.min(a.lo, b.lo),
+    hi: Math.max(a.hi, b.hi),
+  };
+}
+
+/**
+ * Classic compact Aggressive ↔ Passive summary (screenshot layout).
+ * Added at top — does not replace detailed cards / charts below.
+ */
+function renderClassicFight(s) {
+  const px = s.price ?? s.bestBid ?? s.bestAsk;
+  const w = ui.interval;
+  const flow =
+    s.flowWindows?.[w] ||
+    s.flowWindows?.[60] ||
+    s.flowWindows?.[300] ||
+    s.flowWindows?.[String(w)] ||
+    {};
+  const liq =
+    s.liqWindows?.[w] ||
+    s.liqWindows?.[60] ||
+    s.liqWindows?.[300] ||
+    s.liqWindows?.[String(w)] ||
+    {};
+  const abs =
+    s.absorptionByWindow?.[w] ||
+    s.absorptionByWindow?.[String(w)] ||
+    s.absorption ||
+    {};
+
+  const buyAbsorbed =
+    abs.askAbsorbedVolume ??
+    abs.aggressiveBuyAbsorbedVolume ??
+    Math.min(flow.aggressiveBuyVolume || 0, liq.askExec || 0, liq.askRefill || 0);
+  const sellAbsorbed =
+    abs.bidAbsorbedVolume ??
+    abs.aggressiveSellAbsorbedVolume ??
+    Math.min(flow.aggressiveSellVolume || 0, liq.bidExec || 0, liq.bidRefill || 0);
+
+  const buy = {
+    aggressiveVolume: flow.aggressiveBuyVolume ?? s.buyBattle?.aggressiveVolume ?? 0,
+    passiveLiquidity: s.askLiquidity ?? s.buyBattle?.passiveLiquidity ?? 0,
+    executed: liq.askExec ?? s.buyBattle?.executed ?? 0,
+    cancelled: liq.askCancel ?? s.buyBattle?.cancelled ?? 0,
+    refill: liq.askRefill ?? s.buyBattle?.refill ?? 0,
+    absorbed: buyAbsorbed,
+    result: s.buyBattle?.result || "NEUTRAL",
+  };
+  const sell = {
+    aggressiveVolume: flow.aggressiveSellVolume ?? s.sellBattle?.aggressiveVolume ?? 0,
+    passiveLiquidity: s.bidLiquidity ?? s.sellBattle?.passiveLiquidity ?? 0,
+    executed: liq.bidExec ?? s.sellBattle?.executed ?? 0,
+    cancelled: liq.bidCancel ?? s.sellBattle?.cancelled ?? 0,
+    refill: liq.bidRefill ?? s.sellBattle?.refill ?? 0,
+    absorbed: sellAbsorbed,
+    result: s.sellBattle?.result || "NEUTRAL",
+  };
+
+  const buyMeter = {
+    ...buy,
+    executionRatio:
+      (liq.askExec ?? 0) + (liq.askCancel ?? 0) > 0
+        ? (liq.askExec ?? 0) / Math.max((liq.askExec ?? 0) + (liq.askCancel ?? 0), 1e-9)
+        : s.buyBattle?.executionRatio ?? 0,
+    refillRatio:
+      (liq.askExec ?? 0) > 0
+        ? (liq.askRefill ?? 0) / Math.max(liq.askExec, 1e-9)
+        : s.buyBattle?.refillRatio ?? 0,
+    attackScore: (flow.aggressiveBuyVolume ?? 0) / Math.max(s.askLiquidity || 0, 1e-9),
+  };
+  const sellMeter = {
+    ...sell,
+    executionRatio:
+      (liq.bidExec ?? 0) + (liq.bidCancel ?? 0) > 0
+        ? (liq.bidExec ?? 0) / Math.max((liq.bidExec ?? 0) + (liq.bidCancel ?? 0), 1e-9)
+        : s.sellBattle?.executionRatio ?? 0,
+    refillRatio:
+      (liq.bidExec ?? 0) > 0
+        ? (liq.bidRefill ?? 0) / Math.max(liq.bidExec, 1e-9)
+        : s.sellBattle?.refillRatio ?? 0,
+    attackScore: (flow.aggressiveSellVolume ?? 0) / Math.max(s.bidLiquidity || 0, 1e-9),
+  };
+
+  const b = battleShare(buyMeter);
+  const se = battleShare(sellMeter);
+  const tf = INTERVALS.find((it) => it.sec === w)?.label || `${w}s`;
+  const buyResult = abs.ask ? "ASK ABSORPTION · BUYERS ABSORBED" : buy.result || "NEUTRAL";
+  const sellResult = abs.bid ? "BID ABSORPTION · SELLERS ABSORBED" : sell.result || "NEUTRAL";
+  const buyAbsorbRange = mergeRanges(liq.askExecRange, liq.askRefillRange);
+  const sellAbsorbRange = mergeRanges(liq.bidExecRange, liq.bidRefillRange);
+
+  return `
+    <div class="classic-fight" aria-label="Classic aggressive vs passive summary">
+      <div class="fight-card buy${abs.ask ? " is-absorbing" : ""}">
+        <div class="flow">
+          <span class="agg">Aggressive buyers</span>
+          <span class="arrow">→</span>
+          <span class="pas">Passive asks</span>
+          <span class="tf">${tf} · USD</span>
+        </div>
+        <div class="fight-meter" title="Force (aggression) vs Resistance (resting asks)">
+          <div class="force" style="width:${(b.force * 100).toFixed(0)}%"></div>
+          <div class="resist" style="width:${(b.resist * 100).toFixed(0)}%"></div>
+        </div>
+        <div class="fight-stats">
+          ${statLine("Aggressive", buy.aggressiveVolume, px, null, "", abs.aggressiveBuy ? "ABSORBED" : "")}
+          ${statLine("Ask liq", buy.passiveLiquidity, px, s.askLiquidityRange, "pas", abs.ask ? "ABSORBING" : "")}
+          ${statLine("Executed", buy.executed, px, liq.askExecRange, "exec")}
+          ${statLine("Cancelled", buy.cancelled, px, liq.askCancelRange, "cancel")}
+          ${statLine("Refilled", buy.refill, px, liq.askRefillRange, "refill")}
+          ${statLine("Absorbed", buy.absorbed, px, buyAbsorbRange, "absorb", abs.ask ? "ACTIVE" : "")}
+        </div>
+        <div class="fight-result ${stateClass(buyResult)}">${buyResult}</div>
+        <div class="fight-hint">Absorbed = min(aggression, executed, refilled) — size soaked by asks (est.).</div>
+      </div>
+      <div class="fight-card sell${abs.bid ? " is-absorbing" : ""}">
+        <div class="flow">
+          <span class="agg">Aggressive sellers</span>
+          <span class="arrow">→</span>
+          <span class="pas">Passive bids</span>
+          <span class="tf">${tf} · USD</span>
+        </div>
+        <div class="fight-meter" title="Force (aggression) vs Resistance (resting bids)">
+          <div class="force" style="width:${(se.force * 100).toFixed(0)}%"></div>
+          <div class="resist" style="width:${(se.resist * 100).toFixed(0)}%"></div>
+        </div>
+        <div class="fight-stats">
+          ${statLine("Aggressive", sell.aggressiveVolume, px, null, "", abs.aggressiveSell ? "ABSORBED" : "")}
+          ${statLine("Bid liq", sell.passiveLiquidity, px, s.bidLiquidityRange, "pas", abs.bid ? "ABSORBING" : "")}
+          ${statLine("Executed", sell.executed, px, liq.bidExecRange, "exec")}
+          ${statLine("Cancelled", sell.cancelled, px, liq.bidCancelRange, "cancel")}
+          ${statLine("Refilled", sell.refill, px, liq.bidRefillRange, "refill")}
+          ${statLine("Absorbed", sell.absorbed, px, sellAbsorbRange, "absorb", abs.bid ? "ACTIVE" : "")}
+        </div>
+        <div class="fight-result ${stateClass(sellResult)}">${sellResult}</div>
+        <div class="fight-hint">Absorbed = min(aggression, executed, refilled) — size soaked by bids (est.).</div>
+      </div>
+    </div>`;
+}
+
 function fmtPx(n) {
   if (n == null) return "—";
   const x = Number(n);
@@ -819,8 +995,10 @@ function sidePresenceShape(s, w, px) {
 
 function ensureFightShell() {
   const el = $("fight");
-  // Keep Market Battle charts + cards. Drop Passive Liquidity Profile radar / Pre-move if present.
+  // Classic summary on top, then Market Battle charts + detailed cards.
+  // Drop Passive Liquidity Profile radar / Pre-move if an older shell is present.
   if (
+    el.querySelector("#classic-fight-root") &&
     el.querySelector("#battle-viz-root") &&
     el.querySelector("#battle-cards") &&
     !el.querySelector("#premove-root") &&
@@ -828,7 +1006,7 @@ function ensureFightShell() {
   ) {
     return;
   }
-  el.innerHTML = `<div id="battle-viz-root" class="bv-root"></div><div id="battle-cards"></div>`;
+  el.innerHTML = `<div id="classic-fight-root"></div><div id="battle-viz-root" class="bv-root"></div><div id="battle-cards"></div>`;
 }
 
 function modelTfLabel() {
@@ -857,6 +1035,9 @@ function paintBattle(s) {
     paintBattleViz(ui.battleViz, modelTfLabel());
   });
 
+  const classic = $("classic-fight-root");
+  if (classic) classic.innerHTML = renderClassicFight(s);
+
   const px = s.price ?? s.bestBid ?? s.bestAsk;
   const w = ui.interval;
   const tf = INTERVALS.find((it) => it.sec === w)?.label || `${w}s`;
@@ -880,7 +1061,7 @@ function paintBattle(s) {
     ${renderBattleCard(sell, px, "sell", "Aggressive sellers", "Passive bids", tf, s.multiVenue)}
   `;
 
-  const lead = buy?.state || sell?.state;
+  const lead = buy?.state || sell?.state || s.buyBattle?.result || s.sellBattle?.result;
   if (lead && $("h-state") && !ui.switching) {
     $("h-state").textContent = prettyState(lead);
     $("h-state").className = `state ${stateClass(lead)}`;
