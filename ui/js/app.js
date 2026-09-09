@@ -1044,7 +1044,7 @@ function renderPushDock() {
           </div>
           <div class="push-card-money">${fmtUsd(a.triggerUsd)}</div>
           <div class="push-card-msg">${a.message}</div>
-          <div class="push-card-meta">1m aggressive · threshold ${fmtUsd(a.thresholdUsd)}</div>
+          <div class="push-card-meta">30s aggressive · threshold ${fmtUsd(a.thresholdUsd)}</div>
         </button>`
         )
         .join("")}
@@ -1072,7 +1072,7 @@ function pushAggressionAlert(alert) {
     if (typeof Notification !== "undefined") {
       if (Notification.permission === "granted") {
         const n = new Notification(alert.message, {
-          body: `${alert.symbol} · 1m aggressive ${alert.side.toUpperCase()} ${fmtUsd(alert.triggerUsd)}`,
+          body: `${alert.symbol} · 30s aggressive ${alert.side.toUpperCase()} ${fmtUsd(alert.triggerUsd)}`,
           tag: `agg-${alert.symbol}-${alert.side}`,
         });
         n.onclick = () => {
@@ -1100,7 +1100,7 @@ function renderAggressionWatchStrip() {
   host.innerHTML = `
     <div class="agg-watch-line">
       <b>Background watch</b>
-      <span>${snap.watching?.length || 0} coins · 1m &gt; ${fmtUsd(snap.thresholdUsd)} · ex BTC/ETH</span>
+      <span>${snap.watching?.length || 0} coins · 30s &gt; ${fmtUsd(snap.thresholdUsd)} · ex BTC/ETH</span>
       <em>${snap.status || ""}</em>
     </div>
     ${
@@ -1113,7 +1113,7 @@ function renderAggressionWatchStrip() {
               return `<button type="button" class="agg-hot-chip ${r.hotBuy && r.hotSell ? "both" : r.hotBuy ? "buy" : "sell"}" data-sym="${r.symbol}">${r.label} ${bits.join(" · ")}</button>`;
             })
             .join("")}</div>`
-        : `<div class="agg-watch-quiet">No coin over ${fmtUsd(snap.thresholdUsd)} aggressive in the last 1m</div>`
+        : `<div class="agg-watch-quiet">No coin over ${fmtUsd(snap.thresholdUsd)} aggressive in the last 30s</div>`
     }`;
   host.querySelectorAll("[data-sym]").forEach((btn) => {
     btn.addEventListener("click", () => switchSymbol(btn.dataset.sym));
