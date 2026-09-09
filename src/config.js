@@ -117,10 +117,7 @@ export const CONFIG = {
   footprintColumns: 48,
   footprintPricePrecision: 1,
   restBase: "https://fapi.binance.com",
-  // Primary futures WS; some networks block fstream.binance.com TLS.
+  // Primary futures WS; some networks open fstream.binance.com with no data.
   wsBase: "wss://fstream.binancefuture.com",
-  wsFallbacks: [
-    "wss://fstream.binancefuture.com",
-    "wss://fstream.binance.com",
-  ],
+  wsFallbacks: ["wss://fstream.binance.com"],
 };

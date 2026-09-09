@@ -54,6 +54,7 @@ export class WatchlistAggressionWatcher {
     this.ws = null;
     this.running = false;
     this._gen = 0;
+    this._failoverAttempt = 0;
     this._tickTimer = null;
     this.status = "idle";
   }
@@ -103,12 +104,21 @@ export class WatchlistAggressionWatcher {
     }
   }
 
-  _streamUrl() {
-    const bases = [CONFIG.wsBase, ...(CONFIG.wsFallbacks || [])]
-      .filter(Boolean)
-      .map((b) => b.replace(/\/$/, ""));
-    const unique = [...new Set(bases)];
-    const wsBase = unique[this._gen % unique.length] || "wss://fstream.binancefuture.com";
+  _wsBases() {
+    return [
+      ...new Set(
+        [CONFIG.wsBase, ...(CONFIG.wsFallbacks || [])]
+          .filter(Boolean)
+          .map((b) => b.replace(/\/$/, ""))
+      ),
+    ];
+  }
+
+  _streamUrl(attempt = 0) {
+    const bases = this._wsBases();
+    // attempt 0 = primary (fstream.binancefuture.com). Do not key off _gen
+    // after ++ or the first connect lands on a dead fallback that opens with no trades.
+    const wsBase = bases[attempt % Math.max(bases.length, 1)] || "wss://fstream.binancefuture.com";
     const streams = this.symbols.map((s) => `${s.lower}@aggTrade`).join("/");
     return `${wsBase}/stream?streams=${streams}`;
   }
@@ -117,13 +127,15 @@ export class WatchlistAggressionWatcher {
     if (!this.running || !this.symbols.length) return;
     this._close();
     const gen = ++this._gen;
-    const url = this._streamUrl();
+    const attempt = this._failoverAttempt || 0;
+    const url = this._streamUrl(attempt);
     this._status(`Connecting aggression watch…`);
     const ws = new WebSocket(url, {
       handshakeTimeout: 15000,
       headers: { "User-Agent": "binance-order-flow-monitor/aggression-watch" },
     });
     this.ws = ws;
+    let gotTrade = false;
 
     ws.on("open", () => {
       if (gen !== this._gen) return;
@@ -142,6 +154,8 @@ export class WatchlistAggressionWatcher {
       }
       const data = msg.data ?? msg;
       if (data.e !== "aggTrade") return;
+      gotTrade = true;
+      this._failoverAttempt = 0;
       this._onTrade(data);
     });
 
@@ -149,6 +163,10 @@ export class WatchlistAggressionWatcher {
       if (gen !== this._gen) return;
       this._status("Aggression watch reconnecting…");
       if (this.running) {
+        // Rotate endpoint if this socket never delivered trades (silent dead host).
+        if (!gotTrade) {
+          this._failoverAttempt = (attempt + 1) % Math.max(this._wsBases().length, 1);
+        }
         setTimeout(() => {
           if (this.running && gen === this._gen) this._connect();
         }, 1500);
