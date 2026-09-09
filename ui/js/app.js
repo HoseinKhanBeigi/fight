@@ -53,6 +53,8 @@ const ui = {
   ticker24h: null,
   headerReady: false,
   switching: false,
+  aggressionWatch: null,
+  pushAlerts: [],
 };
 
 function $(id) {
@@ -993,6 +995,131 @@ function sidePresenceShape(s, w, px) {
     </div>`;
 }
 
+function fmtClockMs(ts) {
+  const d = new Date(ts);
+  if (Number.isNaN(d.getTime())) return "—";
+  return d.toLocaleTimeString(undefined, {
+    hour12: false,
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+  });
+}
+
+function ensurePushDock() {
+  let dock = $("push-alerts");
+  if (!dock) {
+    dock = document.createElement("div");
+    dock.id = "push-alerts";
+    dock.className = "push-alerts";
+    dock.setAttribute("aria-live", "assertive");
+    document.body.appendChild(dock);
+  }
+  return dock;
+}
+
+function renderPushDock() {
+  const dock = ensurePushDock();
+  const items = ui.pushAlerts.slice(0, 8);
+  if (!items.length) {
+    dock.innerHTML = "";
+    dock.classList.remove("has-items");
+    return;
+  }
+  dock.classList.add("has-items");
+  dock.innerHTML = `
+    <div class="push-dock-head">
+      <span>Push alerts</span>
+      <button type="button" id="push-clear" class="push-clear">Clear</button>
+    </div>
+    <div class="push-dock-list">
+      ${items
+        .map(
+          (a) => `
+        <button type="button" class="push-card ${a.side}" data-id="${a.id}" data-sym="${a.symbol}">
+          <div class="push-card-top">
+            <b>${a.label || a.symbol}</b>
+            <em>${a.side === "buy" ? "BUY" : "SELL"}</em>
+            <span>${fmtClockMs(a.ts)}</span>
+          </div>
+          <div class="push-card-money">${fmtUsd(a.triggerUsd)}</div>
+          <div class="push-card-msg">${a.message}</div>
+          <div class="push-card-meta">1m aggressive · threshold ${fmtUsd(a.thresholdUsd)}</div>
+        </button>`
+        )
+        .join("")}
+    </div>`;
+
+  $("push-clear")?.addEventListener("click", () => {
+    ui.pushAlerts = [];
+    renderPushDock();
+  });
+  dock.querySelectorAll(".push-card").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const sym = btn.dataset.sym;
+      if (sym) switchSymbol(sym);
+    });
+  });
+}
+
+function pushAggressionAlert(alert) {
+  if (!alert) return;
+  ui.pushAlerts = [alert, ...ui.pushAlerts.filter((a) => a.id !== alert.id)].slice(0, 20);
+  renderPushDock();
+
+  // Browser notification when permitted (optional)
+  try {
+    if (typeof Notification !== "undefined") {
+      if (Notification.permission === "granted") {
+        const n = new Notification(alert.message, {
+          body: `${alert.symbol} · 1m aggressive ${alert.side.toUpperCase()} ${fmtUsd(alert.triggerUsd)}`,
+          tag: `agg-${alert.symbol}-${alert.side}`,
+        });
+        n.onclick = () => {
+          window.focus();
+          switchSymbol(alert.symbol);
+        };
+      } else if (Notification.permission === "default") {
+        Notification.requestPermission().catch(() => {});
+      }
+    }
+  } catch {
+    /* ignore */
+  }
+}
+
+function renderAggressionWatchStrip() {
+  const host = $("agg-watch-strip");
+  if (!host) return;
+  const snap = ui.aggressionWatch;
+  if (!snap) {
+    host.innerHTML = `<div class="agg-watch-line">Background watch: starting…</div>`;
+    return;
+  }
+  const hot = (snap.rows || []).filter((r) => r.hotBuy || r.hotSell);
+  host.innerHTML = `
+    <div class="agg-watch-line">
+      <b>Background watch</b>
+      <span>${snap.watching?.length || 0} coins · 1m &gt; ${fmtUsd(snap.thresholdUsd)} · ex BTC/ETH</span>
+      <em>${snap.status || ""}</em>
+    </div>
+    ${
+      hot.length
+        ? `<div class="agg-watch-hot">${hot
+            .map((r) => {
+              const bits = [];
+              if (r.hotBuy) bits.push(`BUY ${fmtUsd(r.aggressiveBuyUsd)}`);
+              if (r.hotSell) bits.push(`SELL ${fmtUsd(r.aggressiveSellUsd)}`);
+              return `<button type="button" class="agg-hot-chip ${r.hotBuy && r.hotSell ? "both" : r.hotBuy ? "buy" : "sell"}" data-sym="${r.symbol}">${r.label} ${bits.join(" · ")}</button>`;
+            })
+            .join("")}</div>`
+        : `<div class="agg-watch-quiet">No coin over ${fmtUsd(snap.thresholdUsd)} aggressive in the last 1m</div>`
+    }`;
+  host.querySelectorAll("[data-sym]").forEach((btn) => {
+    btn.addEventListener("click", () => switchSymbol(btn.dataset.sym));
+  });
+}
+
 function ensureFightShell() {
   const el = $("fight");
   // Classic summary on top, then Market Battle charts + detailed cards.
@@ -1000,6 +1127,7 @@ function ensureFightShell() {
   if (
     el.querySelector("#classic-fight-root") &&
     el.querySelector("#shock-events-root") &&
+    el.querySelector("#agg-watch-strip") &&
     el.querySelector("#battle-viz-root") &&
     el.querySelector("#battle-cards") &&
     !el.querySelector("#premove-root") &&
@@ -1007,7 +1135,7 @@ function ensureFightShell() {
   ) {
     return;
   }
-  el.innerHTML = `<div id="classic-fight-root"></div><div id="shock-events-root"></div><div id="battle-viz-root" class="bv-root"></div><div id="battle-cards"></div>`;
+  el.innerHTML = `<div id="classic-fight-root"></div><div id="agg-watch-strip" class="agg-watch-strip"></div><div id="shock-events-root"></div><div id="battle-viz-root" class="bv-root"></div><div id="battle-cards"></div>`;
 }
 
 function modelTfLabel() {
@@ -1227,6 +1355,7 @@ function paintBattle(s) {
 
   const classic = $("classic-fight-root");
   if (classic) classic.innerHTML = renderClassicFight(s);
+  renderAggressionWatchStrip();
   const shock = $("shock-events-root");
   if (shock) shock.innerHTML = renderShockEvents(s);
 
@@ -1471,6 +1600,16 @@ function connect() {
         status: data.status,
         symbol: ui.switching ? ui.symbol : ui.last?.symbol || ui.symbol,
       });
+    } else if (data.type === "aggressionAlert") {
+      pushAggressionAlert(data.payload);
+    } else if (data.type === "aggressionWatch") {
+      ui.aggressionWatch = data.payload;
+      ensureFightShell();
+      renderAggressionWatchStrip();
+    } else if (data.type === "aggressionWatchStatus") {
+      if (!ui.aggressionWatch) ui.aggressionWatch = {};
+      ui.aggressionWatch.status = data.payload?.status || "";
+      renderAggressionWatchStrip();
     }
   };
 
@@ -1488,4 +1627,5 @@ function connect() {
 ensureHeader();
 renderHeader({ symbol: ui.symbol, connection: "RECONNECTING" });
 renderFooter();
+ensurePushDock();
 connect();

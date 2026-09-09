@@ -2894,3 +2894,195 @@ select {
 @media (max-width: 900px) {
   .shock-grid { grid-template-columns: 1fr; }
 }
+
+/* ── BACKGROUND AGGRESSION WATCH + PUSH ALERTS ── */
+#agg-watch-strip,
+.agg-watch-strip {
+  grid-column: 1 / -1;
+  border: 1px solid var(--border-1);
+  border-radius: var(--radius);
+  background: var(--bg-2);
+  padding: 8px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.agg-watch-line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px 12px;
+  font-size: 11px;
+  color: var(--text-2);
+}
+
+.agg-watch-line b {
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-1);
+  font-size: 10px;
+}
+
+.agg-watch-line em {
+  font-style: normal;
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--text-3);
+  margin-left: auto;
+}
+
+.agg-watch-quiet {
+  font-size: 10px;
+  color: var(--text-3);
+}
+
+.agg-watch-hot {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.agg-hot-chip {
+  font-family: var(--mono);
+  font-size: 11px;
+  padding: 4px 8px;
+  border-radius: 3px;
+  border: 1px solid var(--border-2);
+  background: var(--bg-3);
+  color: var(--text-0);
+  cursor: pointer;
+}
+
+.agg-hot-chip.buy {
+  border-color: rgba(61, 154, 106, 0.5);
+  color: var(--buy);
+}
+.agg-hot-chip.sell {
+  border-color: rgba(196, 92, 92, 0.5);
+  color: var(--sell);
+}
+.agg-hot-chip.both {
+  border-color: rgba(212, 137, 58, 0.55);
+  color: var(--cancel);
+}
+
+.push-alerts {
+  position: fixed;
+  top: 64px;
+  right: 12px;
+  z-index: 1000;
+  width: min(360px, calc(100vw - 24px));
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  pointer-events: none;
+}
+
+.push-alerts.has-items {
+  pointer-events: auto;
+}
+
+.push-dock-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 10px;
+  border: 1px solid var(--border-2);
+  border-radius: var(--radius);
+  background: rgba(12, 14, 18, 0.94);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-1);
+}
+
+.push-clear {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  padding: 2px 6px;
+  border: 1px solid var(--border-2);
+  border-radius: 3px;
+  background: var(--bg-3);
+  color: var(--text-2);
+  cursor: pointer;
+}
+
+.push-dock-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: min(70vh, 520px);
+  overflow: auto;
+}
+
+.push-card {
+  text-align: left;
+  border: 1px solid var(--border-2);
+  border-radius: var(--radius);
+  background: rgba(12, 14, 18, 0.96);
+  padding: 10px 12px;
+  cursor: pointer;
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.35);
+  animation: push-in 220ms ease-out;
+}
+
+.push-card.buy { border-left: 3px solid var(--buy); }
+.push-card.sell { border-left: 3px solid var(--sell); }
+
+.push-card-top {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+.push-card-top b {
+  font-size: 13px;
+  color: var(--text-0);
+}
+
+.push-card-top em {
+  font-style: normal;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+}
+
+.push-card.buy .push-card-top em { color: var(--buy); }
+.push-card.sell .push-card-top em { color: var(--sell); }
+
+.push-card-top span {
+  margin-left: auto;
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--text-3);
+}
+
+.push-card-money {
+  font-family: var(--mono);
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--text-0);
+}
+
+.push-card-msg {
+  font-size: 12px;
+  color: var(--text-1);
+  margin-top: 2px;
+}
+
+.push-card-meta {
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--text-3);
+  margin-top: 4px;
+}
+
+@keyframes push-in {
+  from { opacity: 0; transform: translateX(16px); }
+  to { opacity: 1; transform: translateX(0); }
+}

@@ -18,6 +18,7 @@ import {
   EQUITY_WATCHLIST,
   WATCHLIST,
 } from "./watchlist.js";
+import { WatchlistAggressionWatcher } from "./aggression-watch.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const UI_ROOT = path.resolve(path.join(__dirname, "..", "ui"));
@@ -128,12 +129,39 @@ const wss = new WebSocketServer({ server, path: "/ws" });
 let monitor = null;
 let broadcastTimer = null;
 let tickerTimer = null;
+let aggressionWatch = null;
+let aggressionStatusTimer = null;
 
 function broadcast(obj) {
   const raw = JSON.stringify(obj);
   for (const client of wss.clients) {
     if (client.readyState === 1) client.send(raw);
   }
+}
+
+function startAggressionWatch() {
+  if (aggressionWatch) return;
+  aggressionWatch = new WatchlistAggressionWatcher({
+    thresholdUsd: 500_000,
+    windowSec: 60,
+    exclude: new Set(["BTCUSDT", "ETHUSDT"]),
+    onAlert: (alert) => {
+      console.log(`[ALERT] ${alert.message}`);
+      broadcast({ type: "aggressionAlert", payload: alert });
+    },
+    onStatus: (msg) => {
+      broadcast({ type: "aggressionWatchStatus", payload: { status: msg } });
+    },
+  });
+  aggressionWatch.start();
+  if (aggressionStatusTimer) clearInterval(aggressionStatusTimer);
+  aggressionStatusTimer = setInterval(() => {
+    if (!aggressionWatch) return;
+    broadcast({ type: "aggressionWatch", payload: aggressionWatch.snapshot() });
+  }, 2000);
+  console.log(
+    `Aggression watch → ${aggressionWatch.watchedSymbols().join(", ")} (1m > $500K, ex BTC/ETH)`
+  );
 }
 
 async function fetch24h(sym) {
@@ -250,6 +278,11 @@ wss.on("connection", (ws) => {
   if (monitor) {
     ws.send(JSON.stringify({ type: "snapshot", payload: monitor.snapshot() }));
   }
+  if (aggressionWatch) {
+    ws.send(
+      JSON.stringify({ type: "aggressionWatch", payload: aggressionWatch.snapshot() })
+    );
+  }
 
   ws.on("message", async (raw) => {
     let msg;
@@ -295,6 +328,7 @@ server.listen(port, "0.0.0.0", () => {
     console.error("ERROR: ui/index.html missing at", path.join(UI_ROOT, "index.html"));
   }
   // Start market data after HTTP is already accepting traffic (Railway health checks)
+  startAggressionWatch();
   startMonitor(symbol)
     .then(() => startBroadcast())
     .catch((err) => {
@@ -308,12 +342,14 @@ server.listen(port, "0.0.0.0", () => {
 });
 
 process.on("SIGTERM", () => {
+  if (aggressionWatch) aggressionWatch.stop();
   if (monitor) monitor.stop();
   server.close();
   process.exit(0);
 });
 
 process.on("SIGINT", () => {
+  if (aggressionWatch) aggressionWatch.stop();
   if (monitor) monitor.stop();
   server.close();
   process.exit(0);
