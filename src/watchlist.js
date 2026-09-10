@@ -7,10 +7,10 @@ export const CRYPTO_WATCHLIST = [
   { symbol: "SOLUSDT", label: "SOL" },
   { symbol: "AVAXUSDT", label: "AVAX" },
   { symbol: "NEARUSDT", label: "NEAR" },
-  { symbol: "LINKUSDT", label: "LINK" },
   { symbol: "SUIUSDT", label: "SUI" },
   { symbol: "XRPUSDT", label: "XRP" },
   { symbol: "FARTCOINUSDT", label: "FARTCOIN" },
+  { symbol: "EGLDUSDT", label: "EGLD" },
 ];
 
 /** Binance TradFi / equity / commodity perps (same futures WS). */
