@@ -149,7 +149,9 @@ function startAggressionWatch() {
     windowSec: 30,
     exclude: new Set(),
     onAlert: (alert) => {
-      console.log(`[ALERT] ${alert.message}`);
+      let clients = 0;
+      for (const c of wss.clients) if (c.readyState === 1) clients += 1;
+      console.log(`[ALERT] ${alert.message} → UI clients: ${clients}`);
       broadcast({ type: "aggressionAlert", payload: alert });
     },
     onStatus: (msg) => {

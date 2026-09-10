@@ -24,7 +24,7 @@ function paintRecent(list) {
     return;
   }
   recentEl.innerHTML = list
-    .slice(0, 6)
+    .slice(0, 15)
     .map((a) => {
       const t = a.ts ? new Date(a.ts).toLocaleTimeString() : "";
       return `<div>${t} · ${a.title || a.body || "alert"}</div>`;
@@ -32,20 +32,18 @@ function paintRecent(list) {
     .join("");
 }
 
-async function load() {
-  const cfg = { ...DEFAULTS, ...(await chrome.storage.local.get(DEFAULTS)) };
-  enabledEl.checked = !!cfg.enabled;
-  wsUrlEl.value = cfg.wsUrl;
-  uiUrlEl.value = cfg.uiUrl;
-
-  chrome.runtime.sendMessage({ type: "getStatus" }, (res) => {
-    if (chrome.runtime.lastError) {
-      paintStatus("ERR", chrome.runtime.lastError.message);
-      return;
-    }
-    paintStatus(res?.status || "…", res?.detail || "");
-    paintRecent(res?.recentAlerts || []);
+async function refreshFromStorage() {
+  const s = await chrome.storage.local.get({
+    ...DEFAULTS,
+    connectionStatus: "…",
+    connectionDetail: "",
+    recentAlerts: [],
   });
+  enabledEl.checked = !!s.enabled;
+  if (document.activeElement !== wsUrlEl) wsUrlEl.value = s.wsUrl || DEFAULTS.wsUrl;
+  if (document.activeElement !== uiUrlEl) uiUrlEl.value = s.uiUrl || DEFAULTS.uiUrl;
+  paintStatus(s.connectionStatus, s.connectionDetail || "");
+  paintRecent(s.recentAlerts || []);
 }
 
 saveBtn.addEventListener("click", async () => {
@@ -55,22 +53,23 @@ saveBtn.addEventListener("click", async () => {
     wsUrl: wsUrlEl.value.trim() || DEFAULTS.wsUrl,
     uiUrl: uiUrlEl.value.trim() || DEFAULTS.uiUrl,
   });
-  chrome.runtime.sendMessage({ type: "reconnect" }, (res) => {
-    if (chrome.runtime.lastError) {
-      paintStatus("ERR", chrome.runtime.lastError.message);
-      return;
-    }
-    paintStatus(res?.status || "ERR", res?.detail || "");
+  chrome.runtime.sendMessage({ type: "reconnect" }, async () => {
+    await refreshFromStorage();
   });
 });
 
 testBtn.addEventListener("click", () => {
-  chrome.runtime.sendMessage({ type: "testNotify" }, () => {
-    if (chrome.runtime.lastError) {
-      paintStatus("ERR", chrome.runtime.lastError.message);
-    }
+  chrome.runtime.sendMessage({ type: "testNotify" }, async () => {
+    await refreshFromStorage();
   });
 });
 
-load();
-setInterval(load, 2000);
+chrome.storage.onChanged.addListener((changes, area) => {
+  if (area !== "local") return;
+  if (changes.recentAlerts || changes.connectionStatus || changes.connectionDetail) {
+    refreshFromStorage();
+  }
+});
+
+refreshFromStorage();
+setInterval(refreshFromStorage, 1000);

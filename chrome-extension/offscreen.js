@@ -1,6 +1,6 @@
 /**
  * Persistent WebSocket host (offscreen document).
- * MV3 service workers sleep and drop sockets; this page stays alive.
+ * Handles alerts HERE so they are not lost when the service worker sleeps.
  */
 
 let ws = null;
@@ -15,25 +15,82 @@ chrome.runtime.onMessage.addListener((msg) => {
   if (msg.type === "disconnect") {
     gen += 1;
     closeSocket();
-    postStatus("OFF", "");
+    writeStatus("OFF", "");
   }
 });
 
-function postStatus(status, detail = "") {
-  chrome.runtime.sendMessage({
-    source: "offscreen",
-    type: "status",
-    status,
-    detail,
-  }).catch(() => {});
+function writeStatus(status, detail = "") {
+  chrome.storage.local.set({
+    connectionStatus: status,
+    connectionDetail: detail,
+    connectionAt: Date.now(),
+  });
+  chrome.runtime
+    .sendMessage({ source: "offscreen", type: "status", status, detail })
+    .catch(() => {});
 }
 
-function postAlert(payload) {
-  chrome.runtime.sendMessage({
-    source: "offscreen",
-    type: "aggressionAlert",
-    payload,
-  }).catch(() => {});
+function fmtUsd(n) {
+  const a = Math.abs(Number(n) || 0);
+  if (a >= 1_000_000) return `$${(a / 1_000_000).toFixed(2)}M`;
+  if (a >= 1_000) return `$${(a / 1_000).toFixed(0)}K`;
+  return `$${a.toFixed(0)}`;
+}
+
+async function handleAlert(alert) {
+  const side = String(alert.side || "").toUpperCase();
+  const title = alert.message || `${alert.label || alert.symbol} ${side}`;
+  const body = `${alert.symbol} · ${alert.windowSec || "—"}s · ${fmtUsd(alert.triggerUsd)}`;
+  const id = `agg-${String(alert.symbol || "x")}-${side}-${Date.now()}`.replace(
+    /[^a-zA-Z0-9_-]/g,
+    ""
+  );
+  const entry = {
+    id,
+    title,
+    body,
+    ts: Date.now(),
+    symbol: alert.symbol,
+    side,
+    triggerUsd: alert.triggerUsd,
+  };
+
+  // Persist first — popup reads this directly
+  const prev = await chrome.storage.local.get({ recentAlerts: [] });
+  const recentAlerts = [entry, ...(prev.recentAlerts || [])].slice(0, 40);
+  await chrome.storage.local.set({
+    recentAlerts,
+    lastAlertAt: entry.ts,
+    pendingBadge: side === "BUY" ? "buy" : "sell",
+  });
+
+  const iconUrl = chrome.runtime.getURL("icons/icon128.png");
+  try {
+    await chrome.notifications.create(id, {
+      type: "basic",
+      iconUrl,
+      title: title.slice(0, 120),
+      message: body.slice(0, 250),
+      priority: 2,
+      requireInteraction: true,
+    });
+  } catch {
+    try {
+      await chrome.notifications.create(`${id}b`, {
+        type: "basic",
+        iconUrl,
+        title: title.slice(0, 120),
+        message: body.slice(0, 250),
+      });
+    } catch (err) {
+      console.error("notify failed", err);
+    }
+  }
+
+  // Best-effort wake SW for badge update
+  chrome.runtime
+    .sendMessage({ source: "offscreen", type: "aggressionAlert", payload: alert, stored: true })
+    .catch(() => {});
 }
 
 function closeSocket() {
@@ -60,26 +117,26 @@ function connect(wsUrl, enabled) {
   const myGen = ++gen;
   if (!enabled) {
     closeSocket();
-    postStatus("OFF", "");
+    writeStatus("OFF", "");
     return;
   }
   if (!wsUrl) {
-    postStatus("ERR", "missing wsUrl");
+    writeStatus("ERR", "missing wsUrl");
     return;
   }
   if (ws && ws.readyState === WebSocket.OPEN) {
-    postStatus("LIVE", wsUrl);
+    writeStatus("LIVE", wsUrl);
     return;
   }
 
   closeSocket();
-  postStatus("CONNECTING", wsUrl);
+  writeStatus("CONNECTING", wsUrl);
 
   let sock;
   try {
     sock = new WebSocket(wsUrl);
   } catch (err) {
-    postStatus("ERR", String(err?.message || err));
+    writeStatus("ERR", String(err?.message || err));
     scheduleReconnect(wsUrl, enabled);
     return;
   }
@@ -92,14 +149,14 @@ function connect(wsUrl, enabled) {
     } catch {
       /* ignore */
     }
-    postStatus("ERR", "timeout — is fight server running?");
+    writeStatus("ERR", "timeout — is fight server running?");
     scheduleReconnect(wsUrl, enabled);
   }, 8000);
 
   sock.onopen = () => {
     if (myGen !== gen) return;
     clearTimeout(timer);
-    postStatus("LIVE", wsUrl);
+    writeStatus("LIVE", wsUrl);
   };
 
   sock.onmessage = (ev) => {
@@ -111,22 +168,21 @@ function connect(wsUrl, enabled) {
       return;
     }
     if (msg.type === "aggressionAlert" && msg.payload) {
-      postAlert(msg.payload);
+      handleAlert(msg.payload);
     }
   };
 
   sock.onerror = () => {
-    postStatus("ERR", "WebSocket error — check Local network access");
+    writeStatus("ERR", "WebSocket error — check Local network access");
   };
 
   sock.onclose = () => {
     clearTimeout(timer);
     if (myGen !== gen) return;
     if (ws === sock) ws = null;
-    postStatus("DOWN", "disconnected");
+    writeStatus("DOWN", "disconnected");
     scheduleReconnect(wsUrl, enabled);
   };
 }
 
-// Ask service worker for current settings on boot
 chrome.runtime.sendMessage({ source: "offscreen", type: "ready" }).catch(() => {});

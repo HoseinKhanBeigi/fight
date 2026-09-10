@@ -1,5 +1,6 @@
 /**
- * Service worker: keeps offscreen WebSocket alive + shows Chrome notifications.
+ * Service worker: manages offscreen lifecycle + badge / click handlers.
+ * Alert persistence + notifications happen in offscreen.js (survives SW sleep).
  */
 
 const DEFAULTS = {
@@ -22,6 +23,20 @@ function setStatus(next, detail = "") {
     connectionDetail: detail,
     connectionAt: Date.now(),
   });
+  paintBadge(next);
+}
+
+function paintBadge(next, side) {
+  if (side === "buy") {
+    chrome.action.setBadgeText({ text: "!" });
+    chrome.action.setBadgeBackgroundColor({ color: "#2a9d5c" });
+    return;
+  }
+  if (side === "sell") {
+    chrome.action.setBadgeText({ text: "!" });
+    chrome.action.setBadgeBackgroundColor({ color: "#c45c3e" });
+    return;
+  }
   const badge = next === "LIVE" ? "ON" : next === "OFF" ? "" : "!";
   chrome.action.setBadgeText({ text: badge });
   chrome.action.setBadgeBackgroundColor({
@@ -50,6 +65,8 @@ async function ensureOffscreen() {
 async function tellOffscreenConnect() {
   const cfg = await settings();
   await ensureOffscreen();
+  // Give offscreen a tick to register its listener after createDocument
+  await new Promise((r) => setTimeout(r, 50));
   try {
     await chrome.runtime.sendMessage({
       target: "offscreen",
@@ -69,54 +86,33 @@ function fmtUsd(n) {
   return `$${a.toFixed(0)}`;
 }
 
-async function showAlert(alert) {
-  const side = String(alert.side || "").toUpperCase();
-  const title = alert.message || `${alert.label || alert.symbol} ${side}`;
-  const body = `${alert.symbol} · ${alert.windowSec || "—"}s · ${fmtUsd(alert.triggerUsd)}`;
-  // Chrome notification IDs must be reasonable; avoid odd chars
-  const id = `agg-${String(alert.symbol || "x")}-${side}-${Date.now()}`.replace(
-    /[^a-zA-Z0-9_-]/g,
-    ""
-  );
-
-  const iconUrl = chrome.runtime.getURL("icons/icon128.png");
-
-  try {
-    await chrome.notifications.create(id, {
-      type: "basic",
-      iconUrl,
-      title: title.slice(0, 120),
-      message: body.slice(0, 250),
-      priority: 2,
-      requireInteraction: true,
-    });
-  } catch (err) {
-    console.error("notification failed", err);
-    // Fallback without requireInteraction
-    try {
-      await chrome.notifications.create(id + "-b", {
-        type: "basic",
-        iconUrl,
-        title: title.slice(0, 120),
-        message: body.slice(0, 250),
-      });
-    } catch (err2) {
-      console.error("notification fallback failed", err2);
-      setStatus("LIVE", `notify fail: ${err2?.message || err2}`);
-    }
-  }
-
+/** Test button only — real alerts are handled in offscreen. */
+async function showTestAlert() {
+  const alert = {
+    message: "TEST · Fight Aggression Alerts",
+    symbol: "TESTUSDT",
+    label: "TEST",
+    side: "buy",
+    windowSec: 30,
+    triggerUsd: 500_000,
+  };
+  const title = alert.message;
+  const body = `${alert.symbol} · ${alert.windowSec}s · ${fmtUsd(alert.triggerUsd)}`;
+  const id = `test-${Date.now()}`;
+  const entry = { id, title, body, ts: Date.now(), symbol: alert.symbol, side: "BUY" };
   const prev = await chrome.storage.local.get({ recentAlerts: [] });
-  const recentAlerts = [
-    { id, title, body, ts: Date.now(), symbol: alert.symbol, side },
-    ...(prev.recentAlerts || []),
-  ].slice(0, 12);
-  await chrome.storage.local.set({ recentAlerts, lastAlertAt: Date.now() });
-
-  chrome.action.setBadgeText({ text: "!" });
-  chrome.action.setBadgeBackgroundColor({
-    color: side === "BUY" ? "#2a9d5c" : "#c45c3e",
+  await chrome.storage.local.set({
+    recentAlerts: [entry, ...(prev.recentAlerts || [])].slice(0, 40),
+    lastAlertAt: entry.ts,
   });
+  await chrome.notifications.create(id, {
+    type: "basic",
+    iconUrl: chrome.runtime.getURL("icons/icon128.png"),
+    title,
+    message: body,
+    priority: 2,
+  });
+  paintBadge("LIVE", "buy");
 }
 
 chrome.notifications.onClicked.addListener(async (id) => {
@@ -135,8 +131,10 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
       setStatus(msg.status, msg.detail || "");
       return;
     }
-    if (msg.type === "aggressionAlert" && msg.payload) {
-      showAlert(msg.payload);
+    if (msg.type === "aggressionAlert") {
+      // Already stored + notified by offscreen; just update badge
+      const side = String(msg.payload?.side || "").toLowerCase();
+      paintBadge("LIVE", side === "buy" ? "buy" : "sell");
       return;
     }
   }
@@ -158,6 +156,8 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   if (msg?.type === "reconnect") {
     tellOffscreenConnect()
       .then(async () => {
+        // Wait briefly for LIVE status from offscreen
+        await new Promise((r) => setTimeout(r, 400));
         const s = await chrome.storage.local.get(["connectionStatus", "connectionDetail"]);
         sendResponse({
           status: s.connectionStatus || status,
@@ -169,16 +169,25 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   }
 
   if (msg?.type === "testNotify") {
-    showAlert({
-      message: "TEST · Fight Aggression Alerts",
-      symbol: "TESTUSDT",
-      label: "TEST",
-      side: "buy",
-      windowSec: 30,
-      triggerUsd: 500_000,
-      id: `test-${Date.now()}`,
-    }).then(() => sendResponse({ ok: true }));
+    showTestAlert()
+      .then(() => sendResponse({ ok: true }))
+      .catch((err) => sendResponse({ ok: false, error: String(err) }));
     return true;
+  }
+});
+
+chrome.storage.onChanged.addListener((changes, area) => {
+  if (area !== "local") return;
+  if (changes.wsUrl || changes.enabled || changes.uiUrl) {
+    tellOffscreenConnect();
+  }
+  if (changes.pendingBadge) {
+    const side = changes.pendingBadge.newValue;
+    if (side === "buy" || side === "sell") paintBadge("LIVE", side);
+  }
+  if (changes.connectionStatus) {
+    status = changes.connectionStatus.newValue;
+    paintBadge(status);
   }
 });
 
@@ -195,13 +204,6 @@ chrome.runtime.onStartup.addListener(async () => {
 
 chrome.alarms.onAlarm.addListener((alarm) => {
   if (alarm.name === "keepalive") tellOffscreenConnect();
-});
-
-chrome.storage.onChanged.addListener((changes, area) => {
-  if (area !== "local") return;
-  if (changes.wsUrl || changes.enabled || changes.uiUrl) {
-    tellOffscreenConnect();
-  }
 });
 
 tellOffscreenConnect();
