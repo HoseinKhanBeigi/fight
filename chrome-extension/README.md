@@ -18,3 +18,12 @@ Click the extension icon:
 - Click a notification to open the UI
 
 Works even when the fight tab is closed (as long as the server is running).
+
+## v1.1 notes
+
+Chrome MV3 service workers sleep and drop WebSockets. Alerts now run through an
+**offscreen document** so the socket stays connected.
+
+After updating files: `chrome://extensions` → **Reload**, then use **Test notification**.
+If the test toast does not appear, enable notifications for Chrome in macOS
+System Settings → Notifications.

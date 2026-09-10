@@ -10,6 +10,7 @@ import {
   paintBattleViz,
   battleVizEvents,
 } from "./battle-viz.js";
+import { createBattleUxState, renderMarketBattleUX } from "./battle-ux.js";
 
 /** Same list as server `src/watchlist.js` */
 const CRYPTO_WATCHLIST = [
@@ -49,6 +50,8 @@ const ui = {
   interval: 60,
   battleViz: null,
   battleVizPaintAt: 0,
+  battleUx: null,
+  battleUxPaintAt: 0,
   last: null,
   ticker24h: null,
   headerReady: false,
@@ -1122,20 +1125,21 @@ function renderAggressionWatchStrip() {
 
 function ensureFightShell() {
   const el = $("fight");
-  // Classic summary on top, then Market Battle charts + detailed cards.
-  // Drop Passive Liquidity Profile radar / Pre-move if an older shell is present.
+  // Classic summary → alerts → Market Control / battles → trend charts.
   if (
+    el.dataset.battleUx === "v2" &&
     el.querySelector("#classic-fight-root") &&
     el.querySelector("#shock-events-root") &&
     el.querySelector("#agg-watch-strip") &&
-    el.querySelector("#battle-viz-root") &&
     el.querySelector("#battle-cards") &&
+    el.querySelector("#battle-viz-root") &&
     !el.querySelector("#premove-root") &&
     !el.querySelector("#liquidity-profile-root")
   ) {
     return;
   }
-  el.innerHTML = `<div id="classic-fight-root"></div><div id="agg-watch-strip" class="agg-watch-strip"></div><div id="shock-events-root"></div><div id="battle-viz-root" class="bv-root"></div><div id="battle-cards"></div>`;
+  el.dataset.battleUx = "v2";
+  el.innerHTML = `<div id="classic-fight-root"></div><div id="agg-watch-strip" class="agg-watch-strip"></div><div id="shock-events-root"></div><div id="battle-cards"></div><div class="bx-trend-label">Trend (secondary)</div><div id="battle-viz-root" class="bv-root"></div>`;
 }
 
 function modelTfLabel() {
@@ -1346,9 +1350,10 @@ function renderShockEvents(s) {
     </div>`;
 }
 
-function paintBattle(s) {
+function paintBattle(s, forcePaint = false) {
   ensureFightShell();
   if (!ui.battleViz) ui.battleViz = createBattleVizState();
+  if (!ui.battleUx) ui.battleUx = createBattleUxState();
   ensureBattleVizShell($("battle-viz-root"), ui.battleViz, modelTfLabel(), () => {
     paintBattleViz(ui.battleViz, modelTfLabel());
   });
@@ -1359,7 +1364,6 @@ function paintBattle(s) {
   const shock = $("shock-events-root");
   if (shock) shock.innerHTML = renderShockEvents(s);
 
-  const px = s.price ?? s.bestBid ?? s.bestAsk;
   const w = ui.interval;
   const tf = INTERVALS.find((it) => it.sec === w)?.label || `${w}s`;
   const pack = s.battlesByWindow?.[w] || s.battlesByWindow?.[String(w)] || null;
@@ -1367,20 +1371,21 @@ function paintBattle(s) {
   const sell = pack?.sell;
   const cards = $("battle-cards");
 
-  if (!buy && !sell) {
-    cards.innerHTML = `
-      <div class="fight-card buy"><div class="fight-hint">Waiting for battle engine… restart the server if this persists.</div></div>
-      <div class="fight-card sell"><div class="fight-hint">Waiting for battle engine…</div></div>
-    `;
-    return;
+  const now = Date.now();
+  const due = forcePaint || now - (ui.battleUxPaintAt || 0) >= 750 || !cards?.dataset?.ready;
+  if (due) {
+    ui.battleUxPaintAt = now;
+    if (cards) cards.dataset.ready = "1";
+    if (!buy && !sell) {
+      cards.innerHTML = `<div class="bx-wait">Waiting for battle engine… restart the server if this persists.</div>`;
+    } else {
+      cards.innerHTML = renderMarketBattleUX(s, {
+        interval: w,
+        tf,
+        ux: ui.battleUx,
+      });
+    }
   }
-
-  cards.innerHTML = `
-    ${multiVenuePanel(s)}
-    ${sidePresenceShape(s, w, px)}
-    ${renderBattleCard(buy, px, "buy", "Aggressive buyers", "Passive asks", tf, s.multiVenue)}
-    ${renderBattleCard(sell, px, "sell", "Aggressive sellers", "Passive bids", tf, s.multiVenue)}
-  `;
 
   const lead = buy?.state || sell?.state || s.buyBattle?.result || s.sellBattle?.result;
   if (lead && $("h-state") && !ui.switching) {
@@ -1392,11 +1397,9 @@ function paintBattle(s) {
 function renderFooter() {
   $("footer").innerHTML = `
     <div class="note" style="grid-column:1/-1">
-      Attack = aggressive trade flow · Passive Liquidity = current depth + window consumed / cancelled / refilled (USD).
-      All-venue Σ Ask / Σ Bid = Binance + OKX + Bybit + Hyperliquid near-touch USD depth.
-      Consumed / Cancelled / Refilled and battle scores remain Binance-primary for now.
-      Absorption stays in Response only.
-      Consumed ≠ Aggressive (aggressive is executed tape; consumed is resting liquidity removed by trades).
+      Market Control = who leads now · Upside/Downside = Attack vs Defense with Battle Spread ·
+      Money rows = Binance depth / window activity · Details = percentiles & diagnostics ·
+      Trend charts are secondary. Engine math unchanged.
     </div>
   `;
 }
@@ -1418,6 +1421,8 @@ function switchSymbol(next) {
   send({ type: "setSymbol", symbol: sym.toLowerCase() });
   ui.battleViz = createBattleVizState();
   ui.battleVizPaintAt = 0;
+  ui.battleUx = createBattleUxState();
+  ui.battleUxPaintAt = 0;
 }
 
 function ensureHeader() {
@@ -1489,6 +1494,10 @@ function ensureHeader() {
       ui.battleViz = createBattleVizState();
       ui.battleViz.chartWindow = 60;
       ui.battleVizPaintAt = 0;
+      ui.battleUx = createBattleUxState();
+      ui.battleUxPaintAt = 0;
+      const cards = $("battle-cards");
+      if (cards) delete cards.dataset.ready;
       syncIntervalButtons();
       if (ui.last) renderAll(ui.last, true);
     });
@@ -1561,7 +1570,7 @@ function renderAll(s, forcePaint = false) {
   if (!ui.battleViz) ui.battleViz = createBattleVizState();
   ingestBattleViz(ui.battleViz, s, ui.interval);
   renderHeader(s);
-  paintBattle(s);
+  paintBattle(s, forcePaint);
   const now = Date.now();
   if (forcePaint || now - ui.battleVizPaintAt >= BATTLE_CHART_MS) {
     ui.battleVizPaintAt = now;

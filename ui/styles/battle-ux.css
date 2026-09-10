@@ -1,0 +1,504 @@
+/* Cognitive Market Battle UX — hierarchy, bars, stable layout */
+
+.bx-root {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  margin: 0 0 16px;
+}
+
+.bx-wait {
+  padding: 20px;
+  color: var(--text-2);
+  border: 1px solid var(--border-2);
+  border-radius: var(--radius);
+}
+
+/* —— LEVEL 1: Market Control —— */
+.bx-control {
+  border: 1px solid var(--border-2);
+  border-radius: var(--radius);
+  background: linear-gradient(180deg, rgba(18, 22, 28, 0.96), rgba(12, 14, 18, 0.98));
+  padding: 14px 16px 16px;
+}
+
+.bx-control.is-lowconf {
+  opacity: 0.82;
+  border-style: dashed;
+}
+
+.bx-control-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+
+.bx-control-head h2 {
+  margin: 0;
+  font-size: 12px;
+  letter-spacing: 0.14em;
+  font-weight: 700;
+  color: var(--text-1);
+}
+
+.bx-conf {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text-2);
+}
+
+.bx-conf.low {
+  color: var(--cancel, #d4893a);
+}
+
+.bx-control-scores {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+
+.bx-pole {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.bx-pole.buy { align-items: flex-start; }
+.bx-pole.sell { align-items: flex-end; text-align: right; }
+
+.bx-pole span {
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  color: var(--text-2);
+}
+
+.bx-pole b {
+  font-family: var(--mono);
+  font-size: clamp(28px, 4vw, 40px);
+  line-height: 1;
+  font-weight: 700;
+}
+
+.bx-pole.buy b { color: var(--buy); }
+.bx-pole.sell b { color: var(--sell); }
+
+.bx-control-bar {
+  display: flex;
+  height: 10px;
+  border-radius: 2px;
+  overflow: hidden;
+  background: var(--bg-3);
+  margin-bottom: 12px;
+}
+
+.bx-control-bar i.buy { background: var(--buy); }
+.bx-control-bar i.sell { background: var(--sell); }
+
+.bx-control-lead {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 10px 16px;
+  margin-bottom: 6px;
+}
+
+.bx-control-lead strong {
+  font-size: 18px;
+  letter-spacing: 0.04em;
+}
+
+.bx-control-lead.buy strong { color: var(--buy); }
+.bx-control-lead.sell strong { color: var(--sell); }
+.bx-control-lead.flat strong { color: var(--text-1); }
+
+.bx-control-lead span {
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--text-2);
+}
+
+.bx-control-mech {
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  color: var(--text-2);
+  text-transform: uppercase;
+}
+
+/* —— Compare strip —— */
+.bx-compare {
+  border: 1px solid var(--border-2);
+  border-radius: var(--radius);
+  padding: 8px 12px;
+  background: rgba(12, 14, 18, 0.7);
+  font-size: 12px;
+}
+
+.bx-compare-head,
+.bx-compare-row {
+  display: grid;
+  grid-template-columns: minmax(88px, 1.1fr) 1fr 1fr;
+  gap: 8px;
+  align-items: baseline;
+}
+
+.bx-compare-head {
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  color: var(--text-2);
+  margin-bottom: 4px;
+}
+
+.bx-compare-head span:nth-child(2) { color: var(--buy); text-align: right; }
+.bx-compare-head span:nth-child(3) { color: var(--sell); text-align: right; }
+
+.bx-compare-row {
+  padding: 3px 0;
+  border-top: 1px solid rgba(122, 130, 148, 0.12);
+}
+
+.bx-compare-row span { color: var(--text-2); }
+.bx-compare-row b {
+  font-family: var(--mono);
+  text-align: right;
+  font-weight: 600;
+}
+.bx-compare-row b.buy { color: var(--buy); }
+.bx-compare-row b.sell { color: var(--sell); }
+.bx-compare-row b.pas { color: var(--passive, #6b9bd1); }
+.bx-compare-row.strong b { font-size: 13px; color: var(--text-1); }
+.bx-compare-row.muted { opacity: 0.72; font-size: 11px; }
+
+/* —— Dual battle cards —— */
+.bx-dual {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+@media (max-width: 900px) {
+  .bx-dual { grid-template-columns: 1fr; }
+}
+
+.bx-card {
+  border: 1px solid var(--border-2);
+  border-radius: var(--radius);
+  background: rgba(12, 14, 18, 0.94);
+  padding: 12px 14px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.bx-card.buy { border-left: 3px solid var(--buy); }
+.bx-card.sell { border-left: 3px solid var(--sell); }
+.bx-card.is-lowconf { opacity: 0.78; }
+
+.bx-card-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  align-items: flex-start;
+}
+
+.bx-card-head h3 {
+  margin: 0;
+  font-size: 12px;
+  letter-spacing: 0.12em;
+}
+
+.bx-card-head p {
+  margin: 4px 0 0;
+  font-size: 11px;
+  color: var(--text-2);
+}
+
+.bx-state-badge {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  padding: 4px 8px;
+  border-radius: 3px;
+  border: 1px solid var(--border-2);
+  white-space: nowrap;
+  max-width: 46%;
+  text-align: right;
+}
+
+.bx-state-badge.attack {
+  color: var(--buy);
+  border-color: rgba(46, 160, 110, 0.45);
+}
+.bx-card.sell .bx-state-badge.attack { color: var(--sell); border-color: rgba(196, 80, 80, 0.45); }
+.bx-state-badge.defense {
+  color: var(--passive, #6b9bd1);
+  border-color: rgba(107, 155, 209, 0.45);
+}
+.bx-state-badge.amber { color: var(--cancel, #d4893a); }
+.bx-state-badge.muted { color: var(--text-2); }
+
+.bx-ad {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.bx-ad-col {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.bx-ad-k {
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  color: var(--text-2);
+}
+
+.bx-ad-v {
+  font-family: var(--mono);
+  font-size: 28px;
+  line-height: 1;
+}
+
+.bx-ad-col.attack .bx-ad-v { color: var(--buy); }
+.bx-card.sell .bx-ad-col.attack .bx-ad-v { color: var(--sell); }
+.bx-ad-col.defense .bx-ad-v { color: var(--passive, #6b9bd1); }
+
+.bx-ad-sub,
+.bx-ad-money {
+  font-size: 11px;
+  color: var(--text-2);
+}
+
+.bx-ad-money {
+  font-family: var(--mono);
+  color: var(--text-1);
+}
+
+.bx-track {
+  flex: 1;
+  height: 8px;
+  background: rgba(122, 130, 148, 0.18);
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.bx-track.tall { height: 12px; }
+
+.bx-track i {
+  display: block;
+  height: 100%;
+  border-radius: 2px;
+}
+
+.bx-track i.buy { background: var(--buy); }
+.bx-track i.sell { background: var(--sell); }
+.bx-track i.pas { background: var(--passive, #6b9bd1); }
+.bx-track i.cons { background: rgba(212, 137, 58, 0.85); }
+.bx-track i.cancel { background: rgba(196, 80, 80, 0.75); }
+.bx-track i.refill { background: rgba(46, 160, 110, 0.75); }
+
+.bx-dualbar {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.bx-dualbar-row,
+.bx-act-row,
+.bx-scoreline,
+.bx-depth {
+  display: grid;
+  grid-template-columns: 64px 1fr auto;
+  gap: 8px;
+  align-items: center;
+  font-size: 11px;
+}
+
+.bx-dualbar-row span,
+.bx-act-row span,
+.bx-scoreline-lab,
+.bx-depth > span {
+  color: var(--text-2);
+}
+
+.bx-act-row b,
+.bx-depth b,
+.bx-scoreline-num,
+.bx-money-row b {
+  font-family: var(--mono);
+  font-size: 12px;
+  min-width: 4.5rem;
+  text-align: right;
+}
+
+.bx-spread {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  grid-template-rows: auto auto;
+  column-gap: 12px;
+  row-gap: 2px;
+  padding: 10px 12px;
+  border-radius: var(--radius);
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--border-2);
+}
+
+.bx-spread span {
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  color: var(--text-2);
+  grid-column: 1;
+}
+
+.bx-spread b {
+  font-family: var(--mono);
+  font-size: 26px;
+  line-height: 1;
+  grid-column: 2;
+  grid-row: 1 / span 2;
+  align-self: center;
+  justify-self: end;
+}
+
+.bx-spread em {
+  font-style: normal;
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  color: var(--text-2);
+}
+
+.bx-spread.pos b { color: var(--buy); }
+.bx-card.sell .bx-spread.pos b { color: var(--sell); }
+.bx-spread.neg b { color: var(--passive, #6b9bd1); }
+
+.bx-passive h4 {
+  margin: 0 0 8px;
+  font-size: 11px;
+  letter-spacing: 0.12em;
+}
+
+.bx-activity-label {
+  margin: 8px 0 4px;
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  color: var(--text-2);
+}
+
+.bx-money-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 4px 0;
+  font-size: 12px;
+  border-top: 1px solid rgba(122, 130, 148, 0.12);
+}
+
+.bx-money-row.muted,
+.bx-detail-grid .bx-money-row {
+  font-size: 11px;
+  color: var(--text-2);
+}
+
+.bx-pas-state {
+  margin-top: 8px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  color: var(--text-1);
+}
+
+.bx-response {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px 12px;
+  border-left: 3px solid var(--border-2);
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.bx-response span {
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  color: var(--text-2);
+}
+
+.bx-response b {
+  font-size: 14px;
+  letter-spacing: 0.04em;
+}
+
+.bx-response.attack b { color: var(--buy); }
+.bx-card.sell .bx-response.attack b { color: var(--sell); }
+.bx-response.defense b { color: var(--passive, #6b9bd1); }
+.bx-response.amber b { color: var(--cancel, #d4893a); }
+.bx-response.muted b { color: var(--text-2); }
+
+.bx-details,
+.bx-venues {
+  border-top: 1px solid rgba(122, 130, 148, 0.16);
+  padding-top: 6px;
+  font-size: 12px;
+}
+
+.bx-details summary,
+.bx-venues summary {
+  cursor: pointer;
+  color: var(--text-2);
+  letter-spacing: 0.06em;
+  font-size: 11px;
+  text-transform: uppercase;
+}
+
+.bx-detail-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 8px;
+}
+
+.bx-why {
+  margin: 8px 0 0;
+  color: var(--text-2);
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.bx-evidence {
+  list-style: none;
+  padding: 0;
+  margin: 8px 0 0;
+}
+
+.bx-evidence li {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 2px 0;
+  color: var(--text-2);
+  font-size: 11px;
+}
+
+.bx-venues-body {
+  margin-top: 6px;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text-2);
+}
+
+/* Trend charts demoted visually */
+.bv-root {
+  opacity: 0.92;
+  margin-top: 8px;
+}
+
+.bv-root summary,
+.bx-trend-label {
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  color: var(--text-2);
+  text-transform: uppercase;
+  margin-bottom: 6px;
+}

@@ -41,12 +41,13 @@
         background: #1a1f27;
         border: 1px solid #2a313c;
         word-break: break-word;
+        white-space: pre-wrap;
       }
       .status.live { border-color: #2a9d5c; color: #7ddea8; }
       .status.connecting { border-color: #d4a017; color: #e6c35c; }
       .status.down, .status.err, .status.off { border-color: #c45c3e; color: #f0a090; }
       button {
-        margin-top: 10px;
+        margin-top: 8px;
         width: 100%;
         padding: 8px;
         border: 0;
@@ -56,11 +57,34 @@
         font-weight: 600;
         cursor: pointer;
       }
+      button.secondary {
+        background: #2a313c;
+        color: #e8eaed;
+      }
       .hint {
         margin-top: 10px;
         font-size: 10px;
         color: #7a8494;
         line-height: 1.45;
+      }
+      .recent {
+        margin-top: 10px;
+        max-height: 140px;
+        overflow: auto;
+        border-top: 1px solid #2a313c;
+        padding-top: 8px;
+      }
+      .recent h2 {
+        margin: 0 0 6px;
+        font-size: 10px;
+        letter-spacing: 0.08em;
+        color: #9aa3b2;
+      }
+      .recent div {
+        font-size: 11px;
+        padding: 4px 0;
+        border-bottom: 1px solid #1a1f27;
+        color: #c5ccd6;
       }
       code { color: #b8c0cc; }
     </style>
@@ -76,11 +100,15 @@
     <label for="uiUrl">Open UI URL (on click)</label>
     <input id="uiUrl" type="text" spellcheck="false" />
     <button id="save" type="button">Save & reconnect</button>
+    <button id="test" class="secondary" type="button">Test notification</button>
+    <div class="recent">
+      <h2>Recent alerts</h2>
+      <div id="recent">None yet</div>
+    </div>
     <p class="hint">
-      1. Run <code>pnpm run ui</code> so <code>http://127.0.0.1:8787</code> works<br />
-      2. On <code>chrome://extensions</code> → this extension → <b>Reload</b><br />
-      3. If still failing: extension details → allow <b>Local network access</b><br />
-      4. Click <b>Save & reconnect</b> — status should become <b>LIVE</b>
+      After update: <code>chrome://extensions</code> → <b>Reload</b> this extension.<br />
+      Click <b>Test notification</b> — if that fails, allow Chrome notifications in macOS Settings.<br />
+      Alerts need the fight server running on 8787.
     </p>
     <script src="popup.js"></script>
   </body>

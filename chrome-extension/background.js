@@ -1,5 +1,5 @@
 /**
- * Connects to fight UI WebSocket and shows Chrome notifications on aggressionAlert.
+ * Service worker: keeps offscreen WebSocket alive + shows Chrome notifications.
  */
 
 const DEFAULTS = {
@@ -8,10 +8,6 @@ const DEFAULTS = {
   enabled: true,
 };
 
-/** @type {WebSocket|null} */
-let ws = null;
-let reconnectTimer = null;
-let connectGen = 0;
 let status = "boot";
 
 async function settings() {
@@ -33,115 +29,37 @@ function setStatus(next, detail = "") {
   });
 }
 
-function scheduleReconnect(ms = 2500) {
-  if (reconnectTimer) clearTimeout(reconnectTimer);
-  reconnectTimer = setTimeout(() => {
-    connect().catch(() => {});
-  }, ms);
-}
-
-function closeSocket() {
-  if (!ws) return;
-  const sock = ws;
-  ws = null;
+async function hasOffscreen() {
+  if (!chrome.offscreen?.hasDocument) return false;
   try {
-    sock.onopen = null;
-    sock.onmessage = null;
-    sock.onerror = null;
-    sock.onclose = null;
-    sock.close();
+    return await chrome.offscreen.hasDocument();
   } catch {
-    /* ignore */
+    return false;
   }
 }
 
-/**
- * @returns {Promise<string>} final status after attempt
- */
-async function connect() {
-  const { wsUrl, enabled } = await settings();
-  const gen = ++connectGen;
-
-  if (!enabled) {
-    closeSocket();
-    setStatus("OFF");
-    return status;
-  }
-
-  if (ws && ws.readyState === WebSocket.OPEN) {
-    setStatus("LIVE", wsUrl);
-    return status;
-  }
-
-  closeSocket();
-  setStatus("CONNECTING", wsUrl);
-
-  return new Promise((resolve) => {
-    let settled = false;
-    const finish = (next, detail = "") => {
-      if (gen !== connectGen || settled) return;
-      settled = true;
-      setStatus(next, detail);
-      resolve(status);
-    };
-
-    let sock;
-    try {
-      sock = new WebSocket(wsUrl);
-    } catch (err) {
-      finish("ERR", String(err?.message || err));
-      scheduleReconnect();
-      return;
-    }
-    ws = sock;
-
-    const timer = setTimeout(() => {
-      if (gen !== connectGen) return;
-      try {
-        sock.close();
-      } catch {
-        /* ignore */
-      }
-      finish("ERR", "timeout — is the fight server running?");
-      scheduleReconnect();
-    }, 8000);
-
-    sock.onopen = () => {
-      clearTimeout(timer);
-      finish("LIVE", wsUrl);
-    };
-
-    sock.onmessage = (ev) => {
-      let msg;
-      try {
-        msg = JSON.parse(ev.data);
-      } catch {
-        return;
-      }
-      if (msg.type === "aggressionAlert" && msg.payload) {
-        showAlert(msg.payload);
-      }
-    };
-
-    sock.onerror = () => {
-      // onclose will follow; keep detail for popup
-      chrome.storage.local.set({
-        connectionDetail: "WebSocket error — check URL / server / Allow local network",
-      });
-    };
-
-    sock.onclose = () => {
-      clearTimeout(timer);
-      if (gen !== connectGen) return;
-      if (ws === sock) ws = null;
-      if (!settled) {
-        finish("DOWN", "closed before open");
-      } else if (status === "LIVE") {
-        setStatus("DOWN", "disconnected");
-      }
-      if (enabled) scheduleReconnect();
-    };
+async function ensureOffscreen() {
+  if (await hasOffscreen()) return;
+  await chrome.offscreen.createDocument({
+    url: "offscreen.html",
+    reasons: ["BLOBS"],
+    justification: "Keep a persistent WebSocket for aggression alerts while the service worker sleeps.",
   });
+}
+
+async function tellOffscreenConnect() {
+  const cfg = await settings();
+  await ensureOffscreen();
+  try {
+    await chrome.runtime.sendMessage({
+      target: "offscreen",
+      type: "connect",
+      wsUrl: cfg.wsUrl,
+      enabled: !!cfg.enabled,
+    });
+  } catch (err) {
+    setStatus("ERR", String(err?.message || err));
+  }
 }
 
 function fmtUsd(n) {
@@ -155,19 +73,45 @@ async function showAlert(alert) {
   const side = String(alert.side || "").toUpperCase();
   const title = alert.message || `${alert.label || alert.symbol} ${side}`;
   const body = `${alert.symbol} · ${alert.windowSec || "—"}s · ${fmtUsd(alert.triggerUsd)}`;
-  const id = String(alert.id || `${alert.symbol}-${side}-${Date.now()}`);
+  // Chrome notification IDs must be reasonable; avoid odd chars
+  const id = `agg-${String(alert.symbol || "x")}-${side}-${Date.now()}`.replace(
+    /[^a-zA-Z0-9_-]/g,
+    ""
+  );
+
+  const iconUrl = chrome.runtime.getURL("icons/icon128.png");
 
   try {
     await chrome.notifications.create(id, {
       type: "basic",
-      iconUrl: "icons/icon128.png",
-      title,
-      message: body,
+      iconUrl,
+      title: title.slice(0, 120),
+      message: body.slice(0, 250),
       priority: 2,
+      requireInteraction: true,
     });
   } catch (err) {
     console.error("notification failed", err);
+    // Fallback without requireInteraction
+    try {
+      await chrome.notifications.create(id + "-b", {
+        type: "basic",
+        iconUrl,
+        title: title.slice(0, 120),
+        message: body.slice(0, 250),
+      });
+    } catch (err2) {
+      console.error("notification fallback failed", err2);
+      setStatus("LIVE", `notify fail: ${err2?.message || err2}`);
+    }
   }
+
+  const prev = await chrome.storage.local.get({ recentAlerts: [] });
+  const recentAlerts = [
+    { id, title, body, ts: Date.now(), symbol: alert.symbol, side },
+    ...(prev.recentAlerts || []),
+  ].slice(0, 12);
+  await chrome.storage.local.set({ recentAlerts, lastAlertAt: Date.now() });
 
   chrome.action.setBadgeText({ text: "!" });
   chrome.action.setBadgeBackgroundColor({
@@ -181,47 +125,83 @@ chrome.notifications.onClicked.addListener(async (id) => {
   chrome.notifications.clear(id);
 });
 
+chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
+  if (msg?.source === "offscreen") {
+    if (msg.type === "ready") {
+      tellOffscreenConnect().then(() => sendResponse({ ok: true }));
+      return true;
+    }
+    if (msg.type === "status") {
+      setStatus(msg.status, msg.detail || "");
+      return;
+    }
+    if (msg.type === "aggressionAlert" && msg.payload) {
+      showAlert(msg.payload);
+      return;
+    }
+  }
+
+  if (msg?.type === "getStatus") {
+    chrome.storage.local
+      .get(["connectionStatus", "connectionDetail", "recentAlerts", "lastAlertAt"])
+      .then((s) => {
+        sendResponse({
+          status: s.connectionStatus || status,
+          detail: s.connectionDetail || "",
+          recentAlerts: s.recentAlerts || [],
+          lastAlertAt: s.lastAlertAt || 0,
+        });
+      });
+    return true;
+  }
+
+  if (msg?.type === "reconnect") {
+    tellOffscreenConnect()
+      .then(async () => {
+        const s = await chrome.storage.local.get(["connectionStatus", "connectionDetail"]);
+        sendResponse({
+          status: s.connectionStatus || status,
+          detail: s.connectionDetail || "",
+        });
+      })
+      .catch((err) => sendResponse({ status: "ERR", detail: String(err) }));
+    return true;
+  }
+
+  if (msg?.type === "testNotify") {
+    showAlert({
+      message: "TEST · Fight Aggression Alerts",
+      symbol: "TESTUSDT",
+      label: "TEST",
+      side: "buy",
+      windowSec: 30,
+      triggerUsd: 500_000,
+      id: `test-${Date.now()}`,
+    }).then(() => sendResponse({ ok: true }));
+    return true;
+  }
+});
+
 chrome.runtime.onInstalled.addListener(async () => {
   await chrome.storage.local.set(DEFAULTS);
   chrome.alarms.create("keepalive", { periodInMinutes: 1 });
-  connect();
+  await tellOffscreenConnect();
 });
 
-chrome.runtime.onStartup.addListener(() => {
+chrome.runtime.onStartup.addListener(async () => {
   chrome.alarms.create("keepalive", { periodInMinutes: 1 });
-  connect();
+  await tellOffscreenConnect();
 });
 
 chrome.alarms.onAlarm.addListener((alarm) => {
-  if (alarm.name === "keepalive") connect();
+  if (alarm.name === "keepalive") tellOffscreenConnect();
 });
 
 chrome.storage.onChanged.addListener((changes, area) => {
   if (area !== "local") return;
   if (changes.wsUrl || changes.enabled || changes.uiUrl) {
-    connect();
+    tellOffscreenConnect();
   }
 });
 
-chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
-  if (msg?.type === "getStatus") {
-    chrome.storage.local.get(["connectionStatus", "connectionDetail"]).then((s) => {
-      sendResponse({
-        status: s.connectionStatus || status,
-        detail: s.connectionDetail || "",
-      });
-    });
-    return true;
-  }
-  if (msg?.type === "reconnect") {
-    connect()
-      .then(async (finalStatus) => {
-        const s = await chrome.storage.local.get(["connectionDetail"]);
-        sendResponse({ status: finalStatus, detail: s.connectionDetail || "" });
-      })
-      .catch((err) => sendResponse({ status: "ERR", detail: String(err) }));
-    return true;
-  }
-});
-
-connect();
+tellOffscreenConnect();

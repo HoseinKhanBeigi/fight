@@ -9,11 +9,27 @@ const enabledEl = document.getElementById("enabled");
 const wsUrlEl = document.getElementById("wsUrl");
 const uiUrlEl = document.getElementById("uiUrl");
 const saveBtn = document.getElementById("save");
+const testBtn = document.getElementById("test");
+const recentEl = document.getElementById("recent");
 
 function paintStatus(s, detail = "") {
   const v = String(s || "…");
   statusEl.textContent = detail ? `Connection: ${v}\n${detail}` : `Connection: ${v}`;
   statusEl.className = "status " + v.toLowerCase();
+}
+
+function paintRecent(list) {
+  if (!list?.length) {
+    recentEl.textContent = "None yet";
+    return;
+  }
+  recentEl.innerHTML = list
+    .slice(0, 6)
+    .map((a) => {
+      const t = a.ts ? new Date(a.ts).toLocaleTimeString() : "";
+      return `<div>${t} · ${a.title || a.body || "alert"}</div>`;
+    })
+    .join("");
 }
 
 async function load() {
@@ -22,18 +38,13 @@ async function load() {
   wsUrlEl.value = cfg.wsUrl;
   uiUrlEl.value = cfg.uiUrl;
 
-  const local = await chrome.storage.local.get({
-    connectionStatus: "…",
-    connectionDetail: "",
-  });
-  paintStatus(local.connectionStatus, local.connectionDetail);
-
   chrome.runtime.sendMessage({ type: "getStatus" }, (res) => {
     if (chrome.runtime.lastError) {
       paintStatus("ERR", chrome.runtime.lastError.message);
       return;
     }
-    if (res?.status) paintStatus(res.status, res.detail || "");
+    paintStatus(res?.status || "…", res?.detail || "");
+    paintRecent(res?.recentAlerts || []);
   });
 }
 
@@ -53,11 +64,13 @@ saveBtn.addEventListener("click", async () => {
   });
 });
 
-load();
-setInterval(() => {
-  chrome.runtime.sendMessage({ type: "getStatus" }, (res) => {
-    if (!chrome.runtime.lastError && res?.status) {
-      paintStatus(res.status, res.detail || "");
+testBtn.addEventListener("click", () => {
+  chrome.runtime.sendMessage({ type: "testNotify" }, () => {
+    if (chrome.runtime.lastError) {
+      paintStatus("ERR", chrome.runtime.lastError.message);
     }
   });
-}, 1500);
+});
+
+load();
+setInterval(load, 2000);
