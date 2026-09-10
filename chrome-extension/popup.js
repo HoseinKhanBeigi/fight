@@ -32,13 +32,32 @@ function paintRecent(list) {
     .join("");
 }
 
+function storageLocal() {
+  try {
+    return chrome?.storage?.local ?? null;
+  } catch {
+    return null;
+  }
+}
+
 async function refreshFromStorage() {
-  const s = await chrome.storage.local.get({
-    ...DEFAULTS,
-    connectionStatus: "…",
-    connectionDetail: "",
-    recentAlerts: [],
-  });
+  const local = storageLocal();
+  if (!local) {
+    paintStatus("ERR", "chrome.storage unavailable — reload extension");
+    return;
+  }
+  let s;
+  try {
+    s = await local.get({
+      ...DEFAULTS,
+      connectionStatus: "…",
+      connectionDetail: "",
+      recentAlerts: [],
+    });
+  } catch (err) {
+    paintStatus("ERR", String(err?.message || err));
+    return;
+  }
   enabledEl.checked = !!s.enabled;
   if (document.activeElement !== wsUrlEl) wsUrlEl.value = s.wsUrl || DEFAULTS.wsUrl;
   if (document.activeElement !== uiUrlEl) uiUrlEl.value = s.uiUrl || DEFAULTS.uiUrl;
@@ -48,7 +67,12 @@ async function refreshFromStorage() {
 
 saveBtn.addEventListener("click", async () => {
   paintStatus("CONNECTING", "saving…");
-  await chrome.storage.local.set({
+  const local = storageLocal();
+  if (!local) {
+    paintStatus("ERR", "chrome.storage unavailable — reload extension");
+    return;
+  }
+  await local.set({
     enabled: enabledEl.checked,
     wsUrl: wsUrlEl.value.trim() || DEFAULTS.wsUrl,
     uiUrl: uiUrlEl.value.trim() || DEFAULTS.uiUrl,
@@ -64,12 +88,16 @@ testBtn.addEventListener("click", () => {
   });
 });
 
-chrome.storage.onChanged.addListener((changes, area) => {
-  if (area !== "local") return;
-  if (changes.recentAlerts || changes.connectionStatus || changes.connectionDetail) {
-    refreshFromStorage();
-  }
-});
+try {
+  chrome.storage?.onChanged?.addListener((changes, area) => {
+    if (area !== "local") return;
+    if (changes.recentAlerts || changes.connectionStatus || changes.connectionDetail) {
+      refreshFromStorage();
+    }
+  });
+} catch {
+  /* ignore */
+}
 
 refreshFromStorage();
 setInterval(refreshFromStorage, 1000);

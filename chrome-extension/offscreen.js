@@ -1,96 +1,84 @@
 /**
- * Persistent WebSocket host (offscreen document).
- * Handles alerts HERE so they are not lost when the service worker sleeps.
+ * Persistent WebSocket only.
+ * Does NOT touch chrome.storage (can be undefined in some offscreen/timing cases).
+ * Alerts are queued and delivered to the service worker with retries.
  */
 
 let ws = null;
 let reconnectTimer = null;
 let gen = 0;
+let wsUrlCurrent = "";
+let enabledCurrent = true;
+const alertQueue = [];
+let flushTimer = null;
 
-chrome.runtime.onMessage.addListener((msg) => {
+chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   if (msg?.target !== "offscreen") return;
   if (msg.type === "connect") {
     connect(msg.wsUrl, msg.enabled !== false);
+    sendResponse?.({ ok: true });
+    return true;
   }
   if (msg.type === "disconnect") {
     gen += 1;
     closeSocket();
-    writeStatus("OFF", "");
+    postStatus("OFF", "");
+    sendResponse?.({ ok: true });
+    return true;
+  }
+  if (msg.type === "ping") {
+    sendResponse?.({
+      ok: true,
+      ws: ws?.readyState ?? -1,
+      queue: alertQueue.length,
+    });
+    return true;
   }
 });
 
-function writeStatus(status, detail = "") {
-  chrome.storage.local.set({
-    connectionStatus: status,
-    connectionDetail: detail,
-    connectionAt: Date.now(),
-  });
-  chrome.runtime
-    .sendMessage({ source: "offscreen", type: "status", status, detail })
-    .catch(() => {});
+function postStatus(status, detail = "") {
+  safeSend({ source: "offscreen", type: "status", status, detail });
 }
 
-function fmtUsd(n) {
-  const a = Math.abs(Number(n) || 0);
-  if (a >= 1_000_000) return `$${(a / 1_000_000).toFixed(2)}M`;
-  if (a >= 1_000) return `$${(a / 1_000).toFixed(0)}K`;
-  return `$${a.toFixed(0)}`;
-}
-
-async function handleAlert(alert) {
-  const side = String(alert.side || "").toUpperCase();
-  const title = alert.message || `${alert.label || alert.symbol} ${side}`;
-  const body = `${alert.symbol} · ${alert.windowSec || "—"}s · ${fmtUsd(alert.triggerUsd)}`;
-  const id = `agg-${String(alert.symbol || "x")}-${side}-${Date.now()}`.replace(
-    /[^a-zA-Z0-9_-]/g,
-    ""
-  );
-  const entry = {
-    id,
-    title,
-    body,
-    ts: Date.now(),
-    symbol: alert.symbol,
-    side,
-    triggerUsd: alert.triggerUsd,
-  };
-
-  // Persist first — popup reads this directly
-  const prev = await chrome.storage.local.get({ recentAlerts: [] });
-  const recentAlerts = [entry, ...(prev.recentAlerts || [])].slice(0, 40);
-  await chrome.storage.local.set({
-    recentAlerts,
-    lastAlertAt: entry.ts,
-    pendingBadge: side === "BUY" ? "buy" : "sell",
-  });
-
-  const iconUrl = chrome.runtime.getURL("icons/icon128.png");
-  try {
-    await chrome.notifications.create(id, {
-      type: "basic",
-      iconUrl,
-      title: title.slice(0, 120),
-      message: body.slice(0, 250),
-      priority: 2,
-      requireInteraction: true,
-    });
-  } catch {
+function safeSend(msg) {
+  return new Promise((resolve) => {
     try {
-      await chrome.notifications.create(`${id}b`, {
-        type: "basic",
-        iconUrl,
-        title: title.slice(0, 120),
-        message: body.slice(0, 250),
+      chrome.runtime.sendMessage(msg, (res) => {
+        const err = chrome.runtime.lastError;
+        if (err) resolve({ ok: false, error: err.message });
+        else resolve({ ok: true, res });
       });
-    } catch (err) {
-      console.error("notify failed", err);
+    } catch (e) {
+      resolve({ ok: false, error: String(e) });
     }
-  }
+  });
+}
 
-  // Best-effort wake SW for badge update
-  chrome.runtime
-    .sendMessage({ source: "offscreen", type: "aggressionAlert", payload: alert, stored: true })
-    .catch(() => {});
+function enqueueAlert(payload) {
+  alertQueue.push(payload);
+  if (alertQueue.length > 100) alertQueue.splice(0, alertQueue.length - 100);
+  flushQueue();
+}
+
+async function flushQueue() {
+  if (flushTimer) return;
+  flushTimer = setTimeout(async () => {
+    flushTimer = null;
+    while (alertQueue.length) {
+      const payload = alertQueue[0];
+      const result = await safeSend({
+        source: "offscreen",
+        type: "aggressionAlert",
+        payload,
+      });
+      if (!result.ok) {
+        // SW still waking — retry soon
+        setTimeout(flushQueue, 250);
+        return;
+      }
+      alertQueue.shift();
+    }
+  }, 0);
 }
 
 function closeSocket() {
@@ -108,36 +96,40 @@ function closeSocket() {
   }
 }
 
-function scheduleReconnect(wsUrl, enabled, ms = 2500) {
+function scheduleReconnect(ms = 2500) {
   if (reconnectTimer) clearTimeout(reconnectTimer);
-  reconnectTimer = setTimeout(() => connect(wsUrl, enabled), ms);
+  reconnectTimer = setTimeout(() => connect(wsUrlCurrent, enabledCurrent), ms);
 }
 
 function connect(wsUrl, enabled) {
   const myGen = ++gen;
+  wsUrlCurrent = wsUrl || wsUrlCurrent;
+  enabledCurrent = enabled;
+
   if (!enabled) {
     closeSocket();
-    writeStatus("OFF", "");
+    postStatus("OFF", "");
     return;
   }
-  if (!wsUrl) {
-    writeStatus("ERR", "missing wsUrl");
+  if (!wsUrlCurrent) {
+    postStatus("ERR", "missing wsUrl");
     return;
   }
   if (ws && ws.readyState === WebSocket.OPEN) {
-    writeStatus("LIVE", wsUrl);
+    postStatus("LIVE", wsUrlCurrent);
+    flushQueue();
     return;
   }
 
   closeSocket();
-  writeStatus("CONNECTING", wsUrl);
+  postStatus("CONNECTING", wsUrlCurrent);
 
   let sock;
   try {
-    sock = new WebSocket(wsUrl);
+    sock = new WebSocket(wsUrlCurrent);
   } catch (err) {
-    writeStatus("ERR", String(err?.message || err));
-    scheduleReconnect(wsUrl, enabled);
+    postStatus("ERR", String(err?.message || err));
+    scheduleReconnect();
     return;
   }
   ws = sock;
@@ -149,14 +141,15 @@ function connect(wsUrl, enabled) {
     } catch {
       /* ignore */
     }
-    writeStatus("ERR", "timeout — is fight server running?");
-    scheduleReconnect(wsUrl, enabled);
+    postStatus("ERR", "timeout — is fight server running?");
+    scheduleReconnect();
   }, 8000);
 
   sock.onopen = () => {
     if (myGen !== gen) return;
     clearTimeout(timer);
-    writeStatus("LIVE", wsUrl);
+    postStatus("LIVE", wsUrlCurrent);
+    flushQueue();
   };
 
   sock.onmessage = (ev) => {
@@ -168,21 +161,27 @@ function connect(wsUrl, enabled) {
       return;
     }
     if (msg.type === "aggressionAlert" && msg.payload) {
-      handleAlert(msg.payload);
+      enqueueAlert(msg.payload);
     }
   };
 
   sock.onerror = () => {
-    writeStatus("ERR", "WebSocket error — check Local network access");
+    postStatus("ERR", "WebSocket error — check Local network access");
   };
 
   sock.onclose = () => {
     clearTimeout(timer);
     if (myGen !== gen) return;
     if (ws === sock) ws = null;
-    writeStatus("DOWN", "disconnected");
-    scheduleReconnect(wsUrl, enabled);
+    postStatus("DOWN", "disconnected");
+    scheduleReconnect();
   };
 }
 
-chrome.runtime.sendMessage({ source: "offscreen", type: "ready" }).catch(() => {});
+safeSend({ source: "offscreen", type: "ready" });
+setInterval(() => {
+  if (alertQueue.length) flushQueue();
+  if (ws && ws.readyState === WebSocket.OPEN) {
+    postStatus("LIVE", wsUrlCurrent);
+  }
+}, 5000);
