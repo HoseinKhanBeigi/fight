@@ -51,7 +51,10 @@ const MIME = {
 function sendFile(res, filePath) {
   fs.readFile(filePath, (err, buf) => {
     if (err) {
-      console.error("Static 404:", filePath, err.code);
+      // Chrome DevTools probes this path; keep logs quiet for known noise.
+      if (!String(filePath).includes("/.well-known/")) {
+        console.error("Static 404:", filePath, err.code);
+      }
       res.writeHead(404, { "Content-Type": "text/plain; charset=utf-8" });
       res.end("Not found");
       return;

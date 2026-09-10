@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Fight Alerts</title>
+    <style>
+      body {
+        font-family: system-ui, sans-serif;
+        margin: 0;
+        padding: 12px;
+        width: 300px;
+        color: #e8eaed;
+        background: #12151a;
+      }
+      h1 {
+        font-size: 13px;
+        margin: 0 0 10px;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+      }
+      label {
+        display: block;
+        font-size: 11px;
+        color: #9aa3b2;
+        margin: 8px 0 4px;
+      }
+      input[type="text"] {
+        width: 100%;
+        box-sizing: border-box;
+        padding: 6px 8px;
+        border: 1px solid #2a313c;
+        border-radius: 4px;
+        background: #1a1f27;
+        color: #e8eaed;
+        font-size: 12px;
+      }
+      .status {
+        font-size: 12px;
+        padding: 8px;
+        border-radius: 4px;
+        background: #1a1f27;
+        border: 1px solid #2a313c;
+        word-break: break-word;
+      }
+      .status.live { border-color: #2a9d5c; color: #7ddea8; }
+      .status.connecting { border-color: #d4a017; color: #e6c35c; }
+      .status.down, .status.err, .status.off { border-color: #c45c3e; color: #f0a090; }
+      button {
+        margin-top: 10px;
+        width: 100%;
+        padding: 8px;
+        border: 0;
+        border-radius: 4px;
+        background: #c45028;
+        color: #fff;
+        font-weight: 600;
+        cursor: pointer;
+      }
+      .hint {
+        margin-top: 10px;
+        font-size: 10px;
+        color: #7a8494;
+        line-height: 1.45;
+      }
+      code { color: #b8c0cc; }
+    </style>
+  </head>
+  <body>
+    <h1>Fight Aggression Alerts</h1>
+    <div id="status" class="status">Checking…</div>
+    <label>
+      <input type="checkbox" id="enabled" /> Enabled
+    </label>
+    <label for="wsUrl">WebSocket URL</label>
+    <input id="wsUrl" type="text" spellcheck="false" />
+    <label for="uiUrl">Open UI URL (on click)</label>
+    <input id="uiUrl" type="text" spellcheck="false" />
+    <button id="save" type="button">Save & reconnect</button>
+    <p class="hint">
+      1. Run <code>pnpm run ui</code> so <code>http://127.0.0.1:8787</code> works<br />
+      2. On <code>chrome://extensions</code> → this extension → <b>Reload</b><br />
+      3. If still failing: extension details → allow <b>Local network access</b><br />
+      4. Click <b>Save & reconnect</b> — status should become <b>LIVE</b>
+    </p>
+    <script src="popup.js"></script>
+  </body>
+</html>
