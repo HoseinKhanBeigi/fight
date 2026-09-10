@@ -63,7 +63,7 @@ export const PRE_MOVE_WEIGHTS = {
 };
 
 export const CONFIG = {
-  symbol: "btcusdt",
+  symbol: "solusdt",
   windows: [60, 300, 900, 1800, 2700],
   preMove: {
     windows: PRE_MOVE_WINDOWS,

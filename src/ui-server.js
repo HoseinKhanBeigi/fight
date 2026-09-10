@@ -144,7 +144,7 @@ function startAggressionWatch() {
   aggressionWatch = new WatchlistAggressionWatcher({
     thresholdUsd: 500_000,
     windowSec: 30,
-    exclude: new Set(["BTCUSDT", "ETHUSDT"]),
+    exclude: new Set(),
     onAlert: (alert) => {
       console.log(`[ALERT] ${alert.message}`);
       broadcast({ type: "aggressionAlert", payload: alert });
@@ -160,7 +160,7 @@ function startAggressionWatch() {
     broadcast({ type: "aggressionWatch", payload: aggressionWatch.snapshot() });
   }, 2000);
   console.log(
-    `Aggression watch → ${aggressionWatch.watchedSymbols().join(", ")} (30s > $500K, ex BTC/ETH)`
+    `Aggression watch → ${aggressionWatch.watchedSymbols().join(", ")} (30s > $500K)`
   );
 }
 

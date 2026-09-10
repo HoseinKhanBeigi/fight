@@ -1,7 +1,7 @@
 /**
  * Background watchlist aggression scanner.
  *
- * Watches ALL watchlist symbols except BTC/ETH via Binance Futures aggTrade.
+ * Watches ALL watchlist symbols via Binance Futures aggTrade.
  * Alerts when 30-second aggressive buy OR sell notional exceeds threshold (default $500k).
  * Independent of the focused OrderFlowMonitor symbol.
  */
@@ -10,7 +10,7 @@ import WebSocket from "ws";
 import { CONFIG } from "./config.js";
 import { WATCHLIST } from "./watchlist.js";
 
-const EXCLUDE = new Set(["BTCUSDT", "ETHUSDT"]);
+const EXCLUDE = new Set();
 const DEFAULT_THRESHOLD_USD = 500_000;
 const WINDOW_SEC = 30;
 const COOLDOWN_MS = 30_000;
@@ -70,7 +70,7 @@ export class WatchlistAggressionWatcher {
     this._connect();
     this._tickTimer = setInterval(() => this._scan(), 1000);
     this._status(
-      `Watching ${this.symbols.length} symbols (ex BTC/ETH) · 30s agg > $${(
+      `Watching ${this.symbols.length} symbols · ${this.windowSec}s agg > $${(
         this.thresholdUsd / 1000
       ).toFixed(0)}K`
     );
@@ -140,7 +140,7 @@ export class WatchlistAggressionWatcher {
     ws.on("open", () => {
       if (gen !== this._gen) return;
       this._status(
-        `Background watch LIVE · ${this.symbols.length} coins · 30s > $${(this.thresholdUsd / 1000).toFixed(0)}K`
+        `Background watch LIVE · ${this.symbols.length} coins · ${this.windowSec}s > $${(this.thresholdUsd / 1000).toFixed(0)}K`
       );
     });
 
@@ -245,8 +245,8 @@ export class WatchlistAggressionWatcher {
       price: this.lastPrice.get(meta.symbol) ?? null,
       message:
         side === "buy"
-          ? `${meta.label} 30s aggressive BUY ${fmtUsdShort(sideUsd)} (>${fmtUsdShort(this.thresholdUsd)})`
-          : `${meta.label} 30s aggressive SELL ${fmtUsdShort(sideUsd)} (>${fmtUsdShort(this.thresholdUsd)})`,
+          ? `${meta.label} ${this.windowSec}s aggressive BUY ${fmtUsdShort(sideUsd)} (>${fmtUsdShort(this.thresholdUsd)})`
+          : `${meta.label} ${this.windowSec}s aggressive SELL ${fmtUsdShort(sideUsd)} (>${fmtUsdShort(this.thresholdUsd)})`,
     };
     if (this.onAlert) this.onAlert(alert);
   }

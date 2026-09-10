@@ -1,21 +1,21 @@
 /**
  * Watchlist mirrored from oderFlow (`src/live/watchlist.ts`).
- * Crypto + Binance USD-M equity perpetuals.
+ * Crypto + Binance USD-M equity / TradFi perpetuals.
  */
 
 export const CRYPTO_WATCHLIST = [
-  { symbol: "BTCUSDT", label: "BTC" },
-  { symbol: "ETHUSDT", label: "ETH" },
   { symbol: "SOLUSDT", label: "SOL" },
   { symbol: "AVAXUSDT", label: "AVAX" },
   { symbol: "NEARUSDT", label: "NEAR" },
-  { symbol: "DOTUSDT", label: "DOT" },
   { symbol: "LINKUSDT", label: "LINK" },
   { symbol: "SUIUSDT", label: "SUI" },
+  { symbol: "XRPUSDT", label: "XRP" },
+  { symbol: "FARTCOINUSDT", label: "FARTCOIN" },
 ];
 
-/** Binance TradFi / equity perps (same futures WS). */
+/** Binance TradFi / equity / commodity perps (same futures WS). */
 export const EQUITY_WATCHLIST = [
+  { symbol: "CLUSDT", label: "CL" },
   { symbol: "AAPLUSDT", label: "AAPL" },
   { symbol: "AMZNUSDT", label: "AMZN" },
   { symbol: "METAUSDT", label: "META" },
