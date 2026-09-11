@@ -1,16 +1,12 @@
 /**
- * Multi-venue near-touch liquidity aggregator.
- *
- * Primary battle/flow stays on Binance.
- * OKX + Bybit + Hyperliquid contribute CURRENT depth (USD notional) only.
- * Snapshot exposes per-venue breakdown + summed totals.
+ * Near-touch liquidity snapshot (Binance only).
+ * OKX / Bybit / Hyperliquid feeds are disabled — depth + battle stay Binance-primary.
  */
 
-import { venueSymbols, VENUE_IDS, VENUE_LABELS } from "./symbols.js";
+import { venueSymbols, VENUE_LABELS } from "./symbols.js";
 import { VenueDepthBook } from "./VenueDepthBook.js";
-import { OkxDepthFeed } from "./okx.js";
-import { BybitDepthFeed } from "./bybit.js";
-import { HyperliquidDepthFeed } from "./hyperliquid.js";
+
+const BINANCE_ONLY = ["binance"];
 
 export class MultiVenueLiquidity {
   constructor({ levels = 20 } = {}) {
@@ -21,16 +17,8 @@ export class MultiVenueLiquidity {
     this.books = {
       binance: new VenueDepthBook(levels),
     };
-    this.feeds = {
-      okx: null,
-      bybit: null,
-      hyperliquid: null,
-    };
     this.status = {
       binance: "idle",
-      okx: "idle",
-      bybit: "idle",
-      hyperliquid: "idle",
     };
     this.running = false;
   }
@@ -42,57 +30,10 @@ export class MultiVenueLiquidity {
     this.ids = venueSymbols(this.symbol);
     this.books.binance = new VenueDepthBook(this.levels);
     this.status.binance = "primary";
-
-    if (this.ids.okx) {
-      this.feeds.okx = new OkxDepthFeed({
-        instId: this.ids.okx,
-        levels: this.levels,
-        onStatus: (m) => {
-          this.status.okx = m;
-        },
-      });
-      void this.feeds.okx.start();
-    } else {
-      this.status.okx = "UNSUPPORTED";
-    }
-
-    if (this.ids.bybit) {
-      this.feeds.bybit = new BybitDepthFeed({
-        symbol: this.ids.bybit,
-        levels: this.levels,
-        onStatus: (m) => {
-          this.status.bybit = m;
-        },
-      });
-      void this.feeds.bybit.start();
-    } else {
-      this.status.bybit = "UNSUPPORTED";
-    }
-
-    if (this.ids.hyperliquid) {
-      this.feeds.hyperliquid = new HyperliquidDepthFeed({
-        coin: this.ids.hyperliquid,
-        levels: this.levels,
-        onStatus: (m) => {
-          this.status.hyperliquid = m;
-        },
-      });
-      void this.feeds.hyperliquid.start();
-    } else {
-      this.status.hyperliquid = "UNSUPPORTED";
-    }
   }
 
   async stop() {
     this.running = false;
-    for (const key of ["okx", "bybit", "hyperliquid"]) {
-      try {
-        this.feeds[key]?.stop();
-      } catch {
-        /* ignore */
-      }
-      this.feeds[key] = null;
-    }
     for (const b of Object.values(this.books)) b.clear?.();
   }
 
@@ -102,34 +43,9 @@ export class MultiVenueLiquidity {
     if (this.books.binance.ready) this.status.binance = "Binance live";
   }
 
-  _venueBook(id) {
-    if (id === "binance") return this.books.binance;
-    return this.feeds[id]?.book || null;
-  }
-
   _venueRow(id, now) {
     const label = VENUE_LABELS[id] || id;
-    const book = this._venueBook(id);
-    const supported =
-      id === "binance" ? true : id === "okx" ? !!this.ids.okx : id === "bybit" ? !!this.ids.bybit : !!this.ids.hyperliquid;
-
-    if (!supported) {
-      return {
-        id,
-        label,
-        supported: false,
-        ready: false,
-        stale: true,
-        status: "UNSUPPORTED",
-        askUsd: null,
-        bidUsd: null,
-        askBase: null,
-        bidBase: null,
-        mid: null,
-        bestBid: null,
-        bestAsk: null,
-      };
-    }
+    const book = this.books.binance;
 
     const ready = !!book?.ready;
     const stale = !book || book.stale(now, 4);
@@ -161,7 +77,7 @@ export class MultiVenueLiquidity {
     let bidN = 0;
     let live = 0;
 
-    for (const id of VENUE_IDS) {
+    for (const id of BINANCE_ONLY) {
       const row = this._venueRow(id, now);
       venues[id] = row;
       if (row.ready && Number.isFinite(row.askUsd)) {
@@ -180,12 +96,12 @@ export class MultiVenueLiquidity {
       base: this.ids.base,
       levels: this.levels,
       venues,
-      venueOrder: VENUE_IDS,
+      venueOrder: BINANCE_ONLY,
       total: {
         askUsd: askN ? askUsd : null,
         bidUsd: bidN ? bidUsd : null,
         venuesLive: live,
-        venuesConfigured: VENUE_IDS.filter((id) => venues[id].supported).length,
+        venuesConfigured: 1,
       },
     };
   }

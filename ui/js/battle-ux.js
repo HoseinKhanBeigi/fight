@@ -315,7 +315,6 @@ function renderBattleCardUX(card, px, isBuy, tf, multiVenue, ux, now) {
   const spread = Number(card?.battleSpread);
   const atkUsd = money(a.aggressiveVolume, px);
   const defUsd = money(d.currentLiquidity, px);
-  const allUsd = isBuy ? multiVenue?.total?.askUsd : multiVenue?.total?.bidUsd;
   const consumed = money(d.consumed, px);
   const cancelled = money(d.cancelled, px);
   const refilled = money(d.replenished, px);
@@ -367,7 +366,6 @@ function renderBattleCardUX(card, px, isBuy, tf, multiVenue, ux, now) {
       <div class="bx-money-row muted"><span>Price efficiency</span><b>${r.efficiency == null ? "—" : Math.round(Number(r.efficiency))}</b></div>
       <div class="bx-money-row muted"><span>Price move</span><b>${r.priceMoveBps == null ? "—" : Number(r.priceMoveBps).toFixed(1) + " bps"}</b></div>
       <div class="bx-money-row muted"><span>Absorbed (est.)</span><b>${r.estimatedAbsorbedFlow == null ? "—" : fmtUsd(money(r.estimatedAbsorbedFlow, px))}</b></div>
-      <div class="bx-money-row muted"><span>All-venue depth</span><b>${allUsd == null ? "—" : fmtUsd(allUsd)}</b></div>
       <div class="bx-money-row muted"><span>Data quality</span><b>${a.dataQuality || d.dataQuality || "—"}</b></div>
     </div>
     ${card?.why ? `<p class="bx-why">${card.why}</p>` : ""}
@@ -466,17 +464,8 @@ export function renderMarketBattleUX(s, opts) {
       ${renderMarketControl(buy, sell, conf, ux, now)}
       ${renderCompareStrip(buy, sell, px)}
       <div class="bx-dual">
-        ${renderBattleCardUX(buy, px, true, tf, s.multiVenue, ux, now)}
-        ${renderBattleCardUX(sell, px, false, tf, s.multiVenue, ux, now)}
+        ${renderBattleCardUX(buy, px, true, tf, null, ux, now)}
+        ${renderBattleCardUX(sell, px, false, tf, null, ux, now)}
       </div>
-      ${
-        s.multiVenue
-          ? `<details class="bx-venues"><summary>All-venue liquidity</summary>
-              <div class="bx-venues-body">
-                Σ Ask ${fmtUsd(s.multiVenue.total?.askUsd)} · Σ Bid ${fmtUsd(s.multiVenue.total?.bidUsd)} · ${s.multiVenue.total?.venuesLive || 0} live
-              </div>
-            </details>`
-          : ""
-      }
     </div>`;
 }

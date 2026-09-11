@@ -677,56 +677,7 @@ function usdOrNoData(n) {
   return `<b>${fmtUsd(Number(n))}</b>`;
 }
 
-function multiVenuePanel(s) {
-  const mv = s?.multiVenue;
-  if (!mv?.venues) return "";
-  const order = mv.venueOrder || Object.keys(mv.venues);
-  const rows = order
-    .map((id) => {
-      const v = mv.venues[id];
-      if (!v) return "";
-      const st = !v.supported
-        ? "unsupported"
-        : v.ready
-          ? "live"
-          : v.stale
-            ? "stale"
-            : "wait";
-      return `
-        <div class="mv-venue ${st}">
-          <div class="mv-name">${v.label}</div>
-          <div class="mv-side"><span>Ask</span><b>${v.askUsd == null ? "—" : fmtUsd(v.askUsd)}</b></div>
-          <div class="mv-side"><span>Bid</span><b>${v.bidUsd == null ? "—" : fmtUsd(v.bidUsd)}</b></div>
-          <div class="mv-st">${prettyState(v.status || st)}</div>
-        </div>`;
-    })
-    .join("");
-
-  const live = mv.total?.venuesLive ?? 0;
-  const cfg = mv.total?.venuesConfigured ?? 0;
-
-  return `
-    <div class="mv-panel" aria-label="Multi-venue liquidity sum">
-      <div class="mv-head">
-        <div class="mv-title">All-venue liquidity</div>
-        <div class="mv-sub">${mv.base || s.symbol || ""} · top ${mv.levels || 20} · ${live}/${cfg} live</div>
-        <div class="mv-totals">
-          <div class="mv-total ask">
-            <span>Σ Ask</span>
-            <b>${mv.total?.askUsd == null ? "—" : fmtUsd(mv.total.askUsd)}</b>
-          </div>
-          <div class="mv-total bid">
-            <span>Σ Bid</span>
-            <b>${mv.total?.bidUsd == null ? "—" : fmtUsd(mv.total.bidUsd)}</b>
-          </div>
-        </div>
-      </div>
-      <div class="mv-grid">${rows}</div>
-      <div class="mv-note">Sum of near-touch USD depth across Binance + OKX + Bybit + Hyperliquid. Battle metrics stay Binance-primary.</div>
-    </div>`;
-}
-
-function renderBattleCard(card, px, sideClass, titleAgg, titlePas, tf, multiVenue = null) {
+function renderBattleCard(card, px, sideClass, titleAgg, titlePas, tf, _multiVenue = null) {
   if (!card) {
     return `<div class="fight-card ${sideClass}"><div class="flow">${titleAgg}</div><div class="fight-hint">Waiting for battle metrics…</div></div>`;
   }
@@ -741,8 +692,6 @@ function renderBattleCard(card, px, sideClass, titleAgg, titlePas, tf, multiVenu
     d.features?.depth != null && Number.isFinite(Number(d.features.depth))
       ? Number(d.features.depth)
       : null;
-  const allUsd = isBuy ? multiVenue?.total?.askUsd : multiVenue?.total?.bidUsd;
-  const liveN = multiVenue?.total?.venuesLive;
 
   const attackBody = [
     row(aggLabel, moneyPrimary(a.aggressiveVolume, px, { percentile: a.percentile, band: a.percentileBand })),
@@ -755,12 +704,6 @@ function renderBattleCard(card, px, sideClass, titleAgg, titlePas, tf, multiVenu
         percentile: depthPct,
         snapshot: true,
       })
-    ),
-    row(
-      "Current (All venues)",
-      allUsd == null
-        ? `<b class="nodata">NO DATA</b>`
-        : `${usdOrNoData(allUsd)}<small>${liveN || 0} venues · current depth</small>`
     ),
     row(
       "Cancelled",
