@@ -10,7 +10,6 @@ import {
   paintBattleViz,
   battleVizEvents,
 } from "./battle-viz.js";
-import { createBattleUxState, renderMarketBattleUX } from "./battle-ux.js";
 
 /** Same list as server `src/watchlist.js` */
 const CRYPTO_WATCHLIST = [
@@ -50,8 +49,6 @@ const ui = {
   interval: 60,
   battleViz: null,
   battleVizPaintAt: 0,
-  battleUx: null,
-  battleUxPaintAt: 0,
   last: null,
   ticker24h: null,
   headerReady: false,
@@ -1126,21 +1123,21 @@ function renderAggressionWatchStrip() {
 
 function ensureFightShell() {
   const el = $("fight");
-  // Classic summary → alerts → Market Control / battles → trend charts.
+  // Classic summary → alerts → Market Battle charts.
   if (
-    el.dataset.battleUx === "v3" &&
+    el.dataset.battleUx === "v4" &&
     el.querySelector("#classic-fight-root") &&
     el.querySelector("#shock-events-root") &&
     el.querySelector("#agg-watch-strip") &&
-    el.querySelector("#battle-cards") &&
     el.querySelector("#battle-viz-root") &&
+    !el.querySelector("#battle-cards") &&
     !el.querySelector("#premove-root") &&
     !el.querySelector("#liquidity-profile-root")
   ) {
     return;
   }
-  el.dataset.battleUx = "v3";
-  el.innerHTML = `<div id="classic-fight-root"></div><div id="agg-watch-strip" class="agg-watch-strip"></div><div id="shock-events-root"></div><div id="battle-viz-root" class="bv-root"></div><div id="battle-cards"></div>`;
+  el.dataset.battleUx = "v4";
+  el.innerHTML = `<div id="classic-fight-root"></div><div id="agg-watch-strip" class="agg-watch-strip"></div><div id="shock-events-root"></div><div id="battle-viz-root" class="bv-root"></div>`;
 }
 
 function modelTfLabel() {
@@ -1337,7 +1334,7 @@ function renderShockEvents(s) {
   const events = detectShockEvents(s);
   const tf = INTERVALS.find((it) => it.sec === ui.interval)?.label || `${ui.interval}s`;
   if (!events.length) {
-    return `
+  return `
       <div class="shock-panel is-clear">
         <div class="shock-head">
           <div class="shock-title">Aggression & vacuum</div>
@@ -1371,7 +1368,6 @@ function renderShockEvents(s) {
 function paintBattle(s, forcePaint = false) {
   ensureFightShell();
   if (!ui.battleViz) ui.battleViz = createBattleVizState();
-  if (!ui.battleUx) ui.battleUx = createBattleUxState();
   ensureBattleVizShell($("battle-viz-root"), ui.battleViz, modelTfLabel(), () => {
     paintBattleViz(ui.battleViz, modelTfLabel());
   });
@@ -1383,27 +1379,11 @@ function paintBattle(s, forcePaint = false) {
   if (shock) shock.innerHTML = renderShockEvents(s);
 
   const w = ui.interval;
-  const tf = INTERVALS.find((it) => it.sec === w)?.label || `${w}s`;
   const pack = s.battlesByWindow?.[w] || s.battlesByWindow?.[String(w)] || null;
   const buy = pack?.buy;
   const sell = pack?.sell;
-  const cards = $("battle-cards");
 
-  const now = Date.now();
-  const due = forcePaint || now - (ui.battleUxPaintAt || 0) >= 750 || !cards?.dataset?.ready;
-  if (due) {
-    ui.battleUxPaintAt = now;
-    if (cards) cards.dataset.ready = "1";
-    if (!buy && !sell) {
-      cards.innerHTML = `<div class="bx-wait">Waiting for battle engine… restart the server if this persists.</div>`;
-    } else {
-      cards.innerHTML = renderMarketBattleUX(s, {
-        interval: w,
-        tf,
-        ux: ui.battleUx,
-      });
-    }
-  }
+  void forcePaint;
 
   const lead = buy?.state || sell?.state || s.buyBattle?.result || s.sellBattle?.result;
   if (lead && $("h-state") && !ui.switching) {
@@ -1415,9 +1395,8 @@ function paintBattle(s, forcePaint = false) {
 function renderFooter() {
   $("footer").innerHTML = `
     <div class="note" style="grid-column:1/-1">
-      Market Control = who leads now · Upside/Downside = Attack vs Defense with Battle Spread ·
-      Money rows = Binance depth / window activity · Details = percentiles & diagnostics ·
-      Trend charts are secondary. Engine math unchanged.
+      Classic fight = aggressive vs passive summary · Market Battle charts = Attack vs Defense over time ·
+      Push alerts = raw 5s aggression · Engine math unchanged.
     </div>
   `;
 }
@@ -1439,8 +1418,6 @@ function switchSymbol(next) {
   send({ type: "setSymbol", symbol: sym.toLowerCase() });
   ui.battleViz = createBattleVizState();
   ui.battleVizPaintAt = 0;
-  ui.battleUx = createBattleUxState();
-  ui.battleUxPaintAt = 0;
 }
 
 function ensureHeader() {
@@ -1512,10 +1489,6 @@ function ensureHeader() {
       ui.battleViz = createBattleVizState();
       ui.battleViz.chartWindow = 60;
       ui.battleVizPaintAt = 0;
-      ui.battleUx = createBattleUxState();
-      ui.battleUxPaintAt = 0;
-      const cards = $("battle-cards");
-      if (cards) delete cards.dataset.ready;
       syncIntervalButtons();
       if (ui.last) renderAll(ui.last, true);
     });
