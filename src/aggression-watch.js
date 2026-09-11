@@ -2,7 +2,7 @@
  * Background watchlist aggression scanner.
  *
  * Watches ALL watchlist symbols via Binance Futures aggTrade.
- * Alerts when 30-second aggressive buy OR sell notional exceeds threshold (default $500k).
+ * Alerts when 5-second aggressive buy OR sell notional exceeds threshold (default $500k).
  * Independent of the focused OrderFlowMonitor symbol.
  */
 
@@ -12,8 +12,8 @@ import { WATCHLIST } from "./watchlist.js";
 
 const EXCLUDE = new Set();
 const DEFAULT_THRESHOLD_USD = 500_000;
-const WINDOW_SEC = 30;
-const COOLDOWN_MS = 30_000;
+const WINDOW_SEC = 5;
+const COOLDOWN_MS = 5_000;
 
 function notional(qty, price) {
   const q = Number(qty);

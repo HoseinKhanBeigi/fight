@@ -146,7 +146,7 @@ function startAggressionWatch() {
   if (aggressionWatch) return;
   aggressionWatch = new WatchlistAggressionWatcher({
     thresholdUsd: 500_000,
-    windowSec: 30,
+    windowSec: 5,
     exclude: new Set(),
     onAlert: (alert) => {
       let clients = 0;
@@ -165,7 +165,7 @@ function startAggressionWatch() {
     broadcast({ type: "aggressionWatch", payload: aggressionWatch.snapshot() });
   }, 2000);
   console.log(
-    `Aggression watch → ${aggressionWatch.watchedSymbols().join(", ")} (30s > $500K)`
+    `Aggression watch → ${aggressionWatch.watchedSymbols().join(", ")} (5s > $500K)`
   );
 }
 
