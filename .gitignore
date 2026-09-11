@@ -1,0 +1,4 @@
+node_modules/
+
+# Recorded path-test snapshots and outcomes (local data, can get large)
+data/

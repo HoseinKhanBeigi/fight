@@ -7,7 +7,9 @@
   "scripts": {
     "start": "node src/ui-server.js",
     "ui": "node src/ui-server.js",
-    "monitor": "node src/index.js"
+    "monitor": "node src/index.js",
+    "test": "node --test src/path-test/*.test.js",
+    "backtest": "node src/path-test/replay.js"
   },
   "engines": {
     "node": ">=18"

@@ -91,6 +91,16 @@ export const CONFIG = {
     },
     forwardHorizons: [1, 5, 10, 30, 60, 300],
   },
+  pathTest: {
+    enabled: true,
+    strategyVersion: "PREMOVE_V1.0",
+    sampleIntervalSec: 15,
+    horizonSec: 900,
+    minSamples: 30,
+    // Frozen snapshots + outcomes, one JSONL file per symbol + strategy version.
+    persist: true,
+    dataDir: "data/path-test",
+  },
   bookDepthLimit: 1000,
   nearBookLevels: 20,
   footprintBidLevels: 30,

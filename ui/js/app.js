@@ -10,6 +10,7 @@ import {
   paintBattleViz,
   battleVizEvents,
 } from "./battle-viz.js";
+import { renderPathTest } from "./path-test.js";
 
 /** Same list as server `src/watchlist.js` */
 const CRYPTO_WATCHLIST = [
@@ -1129,6 +1130,7 @@ function ensureFightShell() {
     el.querySelector("#classic-fight-root") &&
     el.querySelector("#agg-watch-strip") &&
     el.querySelector("#battle-viz-root") &&
+    el.querySelector("#path-test-root") &&
     !el.querySelector("#shock-events-root") &&
     !el.querySelector("#battle-cards") &&
     !el.querySelector("#premove-root") &&
@@ -1137,7 +1139,7 @@ function ensureFightShell() {
     return;
   }
   el.dataset.battleUx = "v5";
-  el.innerHTML = `<div id="classic-fight-root"></div><div id="agg-watch-strip" class="agg-watch-strip"></div><div id="battle-viz-root" class="bv-root"></div>`;
+  el.innerHTML = `<div id="classic-fight-root"></div><div id="agg-watch-strip" class="agg-watch-strip"></div><div id="battle-viz-root" class="bv-root"></div><div id="path-test-root"></div>`;
 }
 
 function modelTfLabel() {
@@ -1159,6 +1161,7 @@ function refreshBattleViz() {
   });
   window.__smartAlerts = () => ui.last?.smartAlerts || null;
   window.__smartAlertBacktest = () => ui.last?.smartAlerts?.backtest || null;
+  window.__pathTest = () => ui.last?.pathTest || null;
 }
 
 function paintBattle(s, forcePaint = false) {
@@ -1190,7 +1193,7 @@ function renderFooter() {
   $("footer").innerHTML = `
     <div class="note" style="grid-column:1/-1">
       Classic fight = aggressive vs passive summary · Market Battle charts = Attack vs Defense over time ·
-      Push alerts = raw 5s aggression · Engine math unchanged.
+      Forward test = frozen 15m first-barrier labels · Push alerts = raw 5s aggression · Engine math unchanged.
     </div>
   `;
 }
@@ -1360,6 +1363,7 @@ function renderAll(s, forcePaint = false) {
   if (forcePaint || now - ui.battleVizPaintAt >= BATTLE_CHART_MS) {
     ui.battleVizPaintAt = now;
     refreshBattleViz();
+    renderPathTest($("path-test-root"), s?.pathTest);
   }
 }
 

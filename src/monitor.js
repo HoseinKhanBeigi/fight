@@ -10,6 +10,7 @@ import { MarketClassifier, absorptionFlags } from "./classifier.js";
 import { MarketBattleEngine } from "./battle.js";
 import { FootprintAggregator } from "./footprint.js";
 import { PreMovePressureEngine } from "./microstructure/PreMovePressureEngine.js";
+import { PathTestEngine } from "./path-test/index.js";
 import { fetchAggTradesHistory, lookbackForInterval } from "./history.js";
 import { MultiVenueLiquidity } from "./venues/MultiVenueLiquidity.js";
 import { computeBookShape } from "./book-shape.js";
@@ -38,6 +39,17 @@ export class OrderFlowMonitor {
     this.classifier = new MarketClassifier(this.config);
     this.battle = new MarketBattleEngine(this.config);
     this.preMove = new PreMovePressureEngine(this.config);
+    this.pathTest = new PathTestEngine({
+      strategyVersion: this.config.pathTest?.strategyVersion || "PREMOVE_V1.0",
+      sampleIntervalSec: this.config.pathTest?.sampleIntervalSec ?? 15,
+      horizonSec: this.config.pathTest?.horizonSec ?? 900,
+      minSamples: this.config.pathTest?.minSamples ?? 30,
+      selectedTimeframe: 60,
+      mode: "FORWARD",
+      symbol: this.config.symbol,
+      persist: this.config.pathTest?.persist !== false,
+      dataDir: this.config.pathTest?.dataDir,
+    });
     this.footprint = new FootprintAggregator({
       intervalSec: this.config.footprintIntervalSec ?? 5,
       maxColumns: this.config.footprintColumns ?? 48,
@@ -85,6 +97,15 @@ export class OrderFlowMonitor {
   }
 
   async start() {
+    if (this.config.pathTest?.enabled !== false) {
+      const restored = this.pathTest.hydrate();
+      if (restored.completed || restored.abandoned) {
+        console.log(
+          `Path test     →  restored ${restored.completed} labelled signals` +
+            (restored.abandoned ? ` (${restored.abandoned} abandoned mid-horizon)` : "")
+        );
+      }
+    }
     await this.feed.start();
     await this.multiVenue.start(this.config.symbol);
     void this.backfillHistory();
@@ -92,6 +113,7 @@ export class OrderFlowMonitor {
   }
 
   stop() {
+    this.pathTest?.close();
     this._backfillGen += 1;
     if (this._depthLadderTimer) {
       clearInterval(this._depthLadderTimer);
@@ -471,7 +493,7 @@ export class OrderFlowMonitor {
               ? "DISCONNECTED"
               : "RECONNECTING";
 
-    return {
+    const payload = {
       ts: Date.now(),
       symbol: this.config.symbol.toUpperCase(),
       status: this.status,
@@ -563,6 +585,19 @@ export class OrderFlowMonitor {
       history: { ...this.history },
       note: "Cancellation volumes are ESTIMATES (book Δ − matched trades). Historical footprint uses Binance aggTrades REST; cancels/refills are live-only.",
     };
+    if (this.config.pathTest?.enabled !== false) {
+      payload.pathTest = this.pathTest.observe(payload, {
+        now,
+        selectedTimeframe: 60,
+        tradesReady,
+        bookReady,
+        staleBook,
+        lastTradeAge: lastTrade ? now - lastTrade.timestamp : 999,
+        lastBookAge: this.book.lastEventTime ? now - this.book.lastEventTime : 999,
+        priceHistory: this.flow.priceHistory,
+      });
+    }
+    return payload;
   }
 
   _cancelImbalanceLabel(liq) {

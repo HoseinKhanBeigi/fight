@@ -155,6 +155,7 @@ export function createBattleVizState() {
     layouts: { up: null, down: null },
     upside: emptySide(60),
     downside: emptySide(60),
+    pathMarkers: [],
   };
 }
 
@@ -326,6 +327,7 @@ export function ingestBattleViz(viz, s, modelWindow) {
   const down = readPowers(pack, "down");
   ingestSide(viz.upside, modelWindow, up, price, now);
   ingestSide(viz.downside, modelWindow, down, price, now);
+  viz.pathMarkers = Array.isArray(s?.pathTest?.chartMarkers) ? s.pathTest.chartMarkers : [];
   return viz;
 }
 
@@ -611,6 +613,48 @@ function paintSummary(side, sideState, modelLabel) {
   }
 }
 
+function drawPathMarkers(ctx, viz, { padL, padT, plotW, plotH, t0, t1, xAt, yAt, side }) {
+  const marks = (viz.pathMarkers || []).filter((m) => m.t >= t0 && m.t <= t1);
+  if (!marks.length) return;
+  ctx.save();
+  ctx.font = "8px IBM Plex Sans, sans-serif";
+  ctx.textBaseline = "top";
+  for (const m of marks) {
+    const x = xAt(m.t);
+    const up = m.direction === "UP";
+    const color = up ? "#3d9a6a" : "#c45c5c";
+    ctx.beginPath();
+    ctx.moveTo(x, padT);
+    ctx.lineTo(x, padT + plotH);
+    ctx.strokeStyle = m.pending ? "rgba(201,162,39,0.45)" : up ? "rgba(61,154,106,0.4)" : "rgba(196,92,92,0.4)";
+    ctx.setLineDash(m.pending ? [3, 3] : []);
+    ctx.lineWidth = 1;
+    ctx.stroke();
+    ctx.setLineDash([]);
+    const y = padT + 12 + (up ? 0 : 14);
+    ctx.fillStyle = m.pending ? "#c9a227" : color;
+    ctx.beginPath();
+    ctx.moveTo(x, y);
+    ctx.lineTo(x - 4, y + 7);
+    ctx.lineTo(x + 4, y + 7);
+    ctx.closePath();
+    ctx.fill();
+    ctx.textAlign = x > padL + plotW - 90 ? "right" : "left";
+    const score = Number.isFinite(m.score) ? (m.score > 0 ? `+${Math.round(m.score)}` : String(Math.round(m.score))) : "";
+    let label = `${m.direction} ${score}`;
+    if (!m.pending && m.outcome) {
+      const mark = m.correct ? "✓" : "✕";
+      label = `${m.outcome} ${mark}`;
+    } else if (m.pending) {
+      label = `${label} 15m`;
+    }
+    if (side === "up") {
+      ctx.fillText(label, x + (x > padL + plotW - 90 ? -5 : 5), y + 8);
+    }
+  }
+  ctx.restore();
+}
+
 function sizeCanvas(canvas, cssH) {
   const plot = canvas.parentElement;
   const cssW = Math.max(1, Math.floor(plot.clientWidth || plot.getBoundingClientRect().width));
@@ -770,6 +814,8 @@ function drawMain(viz, side) {
     ctx.textAlign = x > padL + plotW - 100 ? "right" : x < padL + 100 ? "left" : "center";
     ctx.fillText(label, Math.min(padL + plotW - 4, Math.max(padL + 4, x)), Math.max(padT + 9, y - 6));
   }
+
+  drawPathMarkers(ctx, viz, { padL, padT, plotW, plotH, t0, t1, xAt, yAt, side });
 
   if (viz.hover.side === side && viz.hover.t != null && valid.length) {
     const hover = nearest(valid, viz.hover.t);
