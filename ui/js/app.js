@@ -1123,21 +1123,21 @@ function renderAggressionWatchStrip() {
 
 function ensureFightShell() {
   const el = $("fight");
-  // Classic summary → alerts → Market Battle charts.
+  // Classic summary → aggression strip → Market Battle charts.
   if (
-    el.dataset.battleUx === "v4" &&
+    el.dataset.battleUx === "v5" &&
     el.querySelector("#classic-fight-root") &&
-    el.querySelector("#shock-events-root") &&
     el.querySelector("#agg-watch-strip") &&
     el.querySelector("#battle-viz-root") &&
+    !el.querySelector("#shock-events-root") &&
     !el.querySelector("#battle-cards") &&
     !el.querySelector("#premove-root") &&
     !el.querySelector("#liquidity-profile-root")
   ) {
     return;
   }
-  el.dataset.battleUx = "v4";
-  el.innerHTML = `<div id="classic-fight-root"></div><div id="agg-watch-strip" class="agg-watch-strip"></div><div id="shock-events-root"></div><div id="battle-viz-root" class="bv-root"></div>`;
+  el.dataset.battleUx = "v5";
+  el.innerHTML = `<div id="classic-fight-root"></div><div id="agg-watch-strip" class="agg-watch-strip"></div><div id="battle-viz-root" class="bv-root"></div>`;
 }
 
 function modelTfLabel() {
@@ -1161,210 +1161,6 @@ function refreshBattleViz() {
   window.__smartAlertBacktest = () => ui.last?.smartAlerts?.backtest || null;
 }
 
-/**
- * Display-only alerts for huge aggressive flow + liquidity vacuum.
- * Uses existing flow / battle / liquidity fields — does not change engine math.
- */
-function detectShockEvents(s) {
-  const px = s.price ?? s.bestBid ?? s.bestAsk;
-  const w = ui.interval;
-  const flow =
-    s.flowWindows?.[w] ||
-    s.flowWindows?.[60] ||
-    s.flowWindows?.[String(w)] ||
-    {};
-  const liq =
-    s.liqWindows?.[w] ||
-    s.liqWindows?.[60] ||
-    s.liqWindows?.[String(w)] ||
-    {};
-  const pack = s.battlesByWindow?.[w] || s.battlesByWindow?.[String(w)] || {};
-  const buy = pack.buy || {};
-  const sell = pack.sell || {};
-  const events = [];
-
-  const buyAgg = Number(flow.aggressiveBuyVolume || buy.attack?.aggressiveVolume || 0);
-  const sellAgg = Number(flow.aggressiveSellVolume || sell.attack?.aggressiveVolume || 0);
-  const largeBuy = Number(flow.largeBuyVolume || buy.attack?.largeVolume || 0);
-  const largeSell = Number(flow.largeSellVolume || sell.attack?.largeVolume || 0);
-  const askLiq = Number(s.askLiquidity || buy.defense?.currentLiquidity || 0);
-  const bidLiq = Number(s.bidLiquidity || sell.defense?.currentLiquidity || 0);
-  const buyPower = Number(buy.attack?.power);
-  const sellPower = Number(sell.attack?.power);
-  const buyLargeShare = buyAgg > 0 ? largeBuy / buyAgg : 0;
-  const sellLargeShare = sellAgg > 0 ? largeSell / sellAgg : 0;
-  const buyVsAsk = askLiq > 0 ? buyAgg / askLiq : 0;
-  const sellVsBid = bidLiq > 0 ? sellAgg / bidLiq : 0;
-
-  const hugeBuy =
-    (buyLargeShare >= 0.45 && largeBuy > 0 && (buyPower >= 60 || buyVsAsk >= 0.08)) ||
-    (buyPower >= 80 && buyLargeShare >= 0.3 && largeBuy > 0) ||
-    (buyVsAsk >= 0.25 && buyAgg > 0 && buyPower >= 55);
-  const hugeSell =
-    (sellLargeShare >= 0.45 && largeSell > 0 && (sellPower >= 60 || sellVsBid >= 0.08)) ||
-    (sellPower >= 80 && sellLargeShare >= 0.3 && largeSell > 0) ||
-    (sellVsBid >= 0.25 && sellAgg > 0 && sellPower >= 55);
-
-  if (hugeBuy) {
-    events.push({
-      id: "huge-buy",
-      kind: "huge",
-      side: "buy",
-      title: "HUGE AGGRESSIVE BUY",
-      detail: `Large prints ${fmtUsd(notional(largeBuy, px))} · ${(buyLargeShare * 100).toFixed(0)}% of buy aggression · attack ${Number.isFinite(buyPower) ? buyPower : "—"}/100`,
-      money: notional(largeBuy || buyAgg, px),
-      secondary: `vs ask depth ${fmtUsd(notional(askLiq, px))} (${(buyVsAsk * 100).toFixed(0)}% of near asks)`,
-    });
-  }
-  if (hugeSell) {
-    events.push({
-      id: "huge-sell",
-      kind: "huge",
-      side: "sell",
-      title: "HUGE AGGRESSIVE SELL",
-      detail: `Large prints ${fmtUsd(notional(largeSell, px))} · ${(sellLargeShare * 100).toFixed(0)}% of sell aggression · attack ${Number.isFinite(sellPower) ? sellPower : "—"}/100`,
-      money: notional(largeSell || sellAgg, px),
-      secondary: `vs bid depth ${fmtUsd(notional(bidLiq, px))} (${(sellVsBid * 100).toFixed(0)}% of near bids)`,
-    });
-  }
-
-  const buyState = String(buy.state || "");
-  const sellState = String(sell.state || "");
-  const buyPas = String(buy.passiveState || "");
-  const sellPas = String(sell.passiveState || "");
-  const askCancel = Number(liq.askCancel || buy.defense?.cancelled || 0);
-  const bidCancel = Number(liq.bidCancel || sell.defense?.cancelled || 0);
-  const askRefill = Number(liq.askRefill || buy.defense?.replenished || 0);
-  const bidRefill = Number(liq.bidRefill || sell.defense?.replenished || 0);
-  const askWithdraw = Math.max(0, askCancel - askRefill);
-  const bidWithdraw = Math.max(0, bidCancel - bidRefill);
-  const askSurvival = Number(buy.defense?.survival);
-  const bidSurvival = Number(sell.defense?.survival);
-  const askDef = Number(buy.defense?.power);
-  const bidDef = Number(sell.defense?.power);
-  const askCancelBand = String(buy.defense?.cancelBand || "");
-  const bidCancelBand = String(sell.defense?.cancelBand || "");
-
-  const upsideVacuum =
-    buyState.includes("VACUUM") ||
-    ((askCancelBand === "EXTREME" || askCancelBand === "HIGH" || buyPas.includes("WITHDRAW")) &&
-      (askSurvival <= 45 || askDef <= 40) &&
-      buyAgg > 0 &&
-      (buyPower >= 45 || buyVsAsk >= 0.05) &&
-      askWithdraw > askRefill);
-
-  const downsideVacuum =
-    sellState.includes("VACUUM") ||
-    ((bidCancelBand === "EXTREME" || bidCancelBand === "HIGH" || sellPas.includes("WITHDRAW")) &&
-      (bidSurvival <= 45 || bidDef <= 40) &&
-      sellAgg > 0 &&
-      (sellPower >= 45 || sellVsBid >= 0.05) &&
-      bidWithdraw > bidRefill);
-
-  if (upsideVacuum) {
-    events.push({
-      id: "vacuum-up",
-      kind: "vacuum",
-      side: "up",
-      title: "UPSIDE LIQUIDITY VACUUM",
-      detail: buyState.includes("VACUUM")
-        ? prettyState(buyState)
-        : "Asks withdrawing / thin while buy aggression presses upside",
-      money: notional(askWithdraw, px),
-      secondary: `Ask withdrawn ${fmtUsd(notional(askWithdraw, px))} · survival ${Number.isFinite(askSurvival) ? askSurvival : "—"}/100 · defense ${Number.isFinite(askDef) ? askDef : "—"}/100`,
-    });
-  }
-  if (downsideVacuum) {
-    events.push({
-      id: "vacuum-down",
-      kind: "vacuum",
-      side: "down",
-      title: "DOWNSIDE LIQUIDITY VACUUM",
-      detail: sellState.includes("VACUUM")
-        ? prettyState(sellState)
-        : "Bids withdrawing / thin while sell aggression presses downside",
-      money: notional(bidWithdraw, px),
-      secondary: `Bid withdrawn ${fmtUsd(notional(bidWithdraw, px))} · survival ${Number.isFinite(bidSurvival) ? bidSurvival : "—"}/100 · defense ${Number.isFinite(bidDef) ? bidDef : "—"}/100`,
-    });
-  }
-
-  const bs = s.bookShape;
-  if (bs?.alert) {
-    const touchPct = bs.touchImb == null ? "—" : `${(bs.touchImb * 100).toFixed(0)}%`;
-    const farPct = bs.farImb == null ? "—" : `${(bs.farImb * 100).toFixed(0)}%`;
-    events.push({
-      id: bs.alert.id,
-      kind: "shape",
-      side: bs.alert.side,
-      title: bs.alert.title,
-      detail: bs.alert.detail,
-      money: notional((bs.nearBid || 0) + (bs.nearAsk || 0), px),
-      secondary: `Touch imb ${touchPct} (L1–${bs.nearLevels}) · Far imb ${farPct} (L${bs.nearLevels + 1}–${bs.depthLevels}) · near ${fmtUsd(notional((bs.nearBid || 0) + (bs.nearAsk || 0), px))} · far ${fmtUsd(notional((bs.farBid || 0) + (bs.farAsk || 0), px))}`,
-    });
-  }
-
-  // Combined: huge aggression into a vacuum is the strongest shock
-  if (hugeBuy && upsideVacuum) {
-    events.unshift({
-      id: "shock-up",
-      kind: "shock",
-      side: "buy",
-      title: "BUY SHOCK INTO ASK VACUUM",
-      detail: "Huge aggressive buys hitting thinning / withdrawing asks",
-      money: notional(largeBuy || buyAgg, px),
-      secondary: `Large buy ${fmtUsd(notional(largeBuy, px))} · ask withdraw ${fmtUsd(notional(askWithdraw, px))}`,
-    });
-  }
-  if (hugeSell && downsideVacuum) {
-    events.unshift({
-      id: "shock-down",
-      kind: "shock",
-      side: "sell",
-      title: "SELL SHOCK INTO BID VACUUM",
-      detail: "Huge aggressive sells hitting thinning / withdrawing bids",
-      money: notional(largeSell || sellAgg, px),
-      secondary: `Large sell ${fmtUsd(notional(largeSell, px))} · bid withdraw ${fmtUsd(notional(bidWithdraw, px))}`,
-    });
-  }
-
-  return events;
-}
-
-function renderShockEvents(s) {
-  const events = detectShockEvents(s);
-  const tf = INTERVALS.find((it) => it.sec === ui.interval)?.label || `${ui.interval}s`;
-  if (!events.length) {
-  return `
-      <div class="shock-panel is-clear">
-        <div class="shock-head">
-          <div class="shock-title">Aggression & vacuum</div>
-          <div class="shock-sub">${tf} · no aggression / vacuum / touch-far alert</div>
-        </div>
-      </div>`;
-  }
-
-  const cards = events
-    .map((e) => {
-      return `
-        <div class="shock-card ${e.kind} ${e.side}">
-          <div class="shock-card-title">${e.title}</div>
-          <div class="shock-card-money">${fmtUsd(e.money)}</div>
-          <div class="shock-card-detail">${e.detail}</div>
-          <div class="shock-card-sec">${e.secondary}</div>
-        </div>`;
-    })
-    .join("");
-
-  return `
-    <div class="shock-panel has-alerts">
-      <div class="shock-head">
-        <div class="shock-title">Aggression, vacuum & book shape</div>
-        <div class="shock-sub">${tf} · ${events.length} active alert${events.length > 1 ? "s" : ""}</div>
-      </div>
-      <div class="shock-grid">${cards}</div>
-    </div>`;
-}
-
 function paintBattle(s, forcePaint = false) {
   ensureFightShell();
   if (!ui.battleViz) ui.battleViz = createBattleVizState();
@@ -1375,8 +1171,6 @@ function paintBattle(s, forcePaint = false) {
   const classic = $("classic-fight-root");
   if (classic) classic.innerHTML = renderClassicFight(s);
   renderAggressionWatchStrip();
-  const shock = $("shock-events-root");
-  if (shock) shock.innerHTML = renderShockEvents(s);
 
   const w = ui.interval;
   const pack = s.battlesByWindow?.[w] || s.battlesByWindow?.[String(w)] || null;
