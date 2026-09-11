@@ -1630,7 +1630,7 @@ function connect() {
     } else if (data.type === "aggressionAlert") {
       pushAggressionAlert(data.payload);
     } else if (data.type === "smartAlert") {
-      pushSmartAlert(data.payload);
+      // Intentionally ignored — push alerts are raw aggression only
     } else if (data.type === "aggressionWatch") {
       ui.aggressionWatch = data.payload;
       ensureFightShell();

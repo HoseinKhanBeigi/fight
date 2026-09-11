@@ -163,17 +163,7 @@ function connect(wsUrl, enabled) {
     if (msg.type === "aggressionAlert" && msg.payload) {
       enqueueAlert(msg.payload);
     }
-    if (msg.type === "smartAlert" && msg.payload) {
-      const p = msg.payload.priority;
-      if (p === "CRITICAL" || p === "IMPORTANT") {
-        enqueueAlert({
-          ...msg.payload,
-          message:
-            msg.payload.message ||
-            `${msg.payload.symbol} ${msg.payload.title || msg.payload.alertType}`,
-        });
-      }
-    }
+    // smartAlert intentionally ignored — desktop push is raw aggression only
   };
 
   sock.onerror = () => {

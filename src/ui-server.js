@@ -139,16 +139,11 @@ let smartAlerts = null;
 
 function ensureSmartAlerts() {
   if (smartAlerts) return smartAlerts;
+  // Engine still tracks for backtest on snapshot, but does NOT push notifications.
+  // Push dock / extension only show raw aggression (who hit hard).
   smartAlerts = new SmartAlertEngine({
     battleWindowSec: 60,
-    onAlert: (alert) => {
-      let clients = 0;
-      for (const c of wss.clients) if (c.readyState === 1) clients += 1;
-      console.log(
-        `[SMART ${alert.priority}] ${alert.symbol} ${alert.title} → UI clients: ${clients}`
-      );
-      broadcast({ type: "smartAlert", payload: alert });
-    },
+    onAlert: null,
   });
   return smartAlerts;
 }
