@@ -197,12 +197,25 @@
 }
 
 .pt-log {
+  position: relative;
   display: flex;
   flex-direction: column;
   gap: 4px;
-  max-height: 280px;
-  overflow: auto;
+  max-height: 420px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-2) transparent;
+  padding-right: 2px;
 }
+
+.pt-log::-webkit-scrollbar { width: 9px; }
+.pt-log::-webkit-scrollbar-track { background: transparent; }
+.pt-log::-webkit-scrollbar-thumb {
+  background: var(--border-2);
+  border-radius: 5px;
+}
+.pt-log::-webkit-scrollbar-thumb:hover { background: var(--text-3); }
 
 .pt-log-row {
   display: grid;

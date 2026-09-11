@@ -59,13 +59,30 @@ function outcomeMark(row) {
   return `<span class="${ok ? "ok" : bad ? "bad" : ""}">${row.outcome} ${mark}</span>`;
 }
 
+/**
+ * Rebuilding the panel resets scroll position, so skip the repaint entirely
+ * when nothing a viewer can see has changed.
+ */
+function paintSignature(data) {
+  const d = data.dashboard || {};
+  const log = (data.log || []).map((r) => `${r.id}${r.outcome || ""}${r.pending ? "p" : ""}`).join(",");
+  return [d.sampleSize, d.openCount, d.signalsTotal, d.predictions?.UP, d.predictions?.DOWN, log].join("|");
+}
+
 export function renderPathTest(host, data) {
   if (!host) return;
   if (!data) {
     host.innerHTML = `<div class="pt-empty">Forward test waiting for live snapshots.</div>`;
+    host.__sig = null;
     return;
   }
+
+  const sig = paintSignature(data);
+  if (host.__sig === sig) return;
+  host.__sig = sig;
+
   const openMore = host.querySelector(".pt-more")?.open === true;
+  const anchor = captureLogAnchor(host.querySelector(".pt-log"));
   const d = data.dashboard || {};
   const acc = rateCell(d.currentForwardAccuracy);
   host.innerHTML = `
@@ -111,6 +128,30 @@ export function renderPathTest(host, data) {
   `;
   const more = host.querySelector(".pt-more");
   if (more) more.open = openMore;
+  restoreLogAnchor(host.querySelector(".pt-log"), anchor);
+}
+
+/**
+ * New signals are prepended, so remembering a pixel offset would shift the
+ * reader down a row each time. Remember which row was on top instead.
+ */
+function captureLogAnchor(log) {
+  if (!log || log.scrollTop <= 0) return null;
+  // Rect maths, because offsetTop is relative to the offsetParent, not the list.
+  const top = log.getBoundingClientRect().top;
+  for (const row of log.querySelectorAll(".pt-log-row")) {
+    const r = row.getBoundingClientRect();
+    if (r.bottom > top) return { id: row.dataset.id, delta: r.top - top };
+  }
+  return null;
+}
+
+function restoreLogAnchor(log, anchor) {
+  if (!log || !anchor?.id) return;
+  const row = log.querySelector(`.pt-log-row[data-id="${CSS.escape(anchor.id)}"]`);
+  if (!row) return;
+  const delta = row.getBoundingClientRect().top - log.getBoundingClientRect().top;
+  log.scrollTop += delta - anchor.delta;
 }
 
 function renderQuality(d) {
@@ -333,7 +374,7 @@ function renderLog(rows) {
       <div class="pt-log">
         ${rows
           .map((r) => {
-            return `<div class="pt-log-row ${predClass(r.prediction)}">
+            return `<div class="pt-log-row ${predClass(r.prediction)}" data-id="${r.id}">
               <div class="pt-log-time">${clock(r.timestamp)}</div>
               <div class="pt-log-pred">${r.prediction} ${fmtScore(r.directionalScore)}</div>
               <div>px ${r.price != null ? Number(r.price).toFixed(4) : "—"}</div>
