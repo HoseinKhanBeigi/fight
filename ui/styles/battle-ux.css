@@ -488,17 +488,8 @@
   color: var(--text-2);
 }
 
-/* Trend charts demoted visually */
+/* Market battle charts sit above Market Control */
 .bv-root {
-  opacity: 0.92;
-  margin-top: 8px;
-}
-
-.bv-root summary,
-.bx-trend-label {
-  font-size: 11px;
-  letter-spacing: 0.08em;
-  color: var(--text-2);
-  text-transform: uppercase;
-  margin-bottom: 6px;
+  opacity: 1;
+  margin: 0 0 14px;
 }

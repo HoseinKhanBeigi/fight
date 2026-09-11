@@ -1127,7 +1127,7 @@ function ensureFightShell() {
   const el = $("fight");
   // Classic summary → alerts → Market Control / battles → trend charts.
   if (
-    el.dataset.battleUx === "v2" &&
+    el.dataset.battleUx === "v3" &&
     el.querySelector("#classic-fight-root") &&
     el.querySelector("#shock-events-root") &&
     el.querySelector("#agg-watch-strip") &&
@@ -1138,8 +1138,8 @@ function ensureFightShell() {
   ) {
     return;
   }
-  el.dataset.battleUx = "v2";
-  el.innerHTML = `<div id="classic-fight-root"></div><div id="agg-watch-strip" class="agg-watch-strip"></div><div id="shock-events-root"></div><div id="battle-cards"></div><div class="bx-trend-label">Trend (secondary)</div><div id="battle-viz-root" class="bv-root"></div>`;
+  el.dataset.battleUx = "v3";
+  el.innerHTML = `<div id="classic-fight-root"></div><div id="agg-watch-strip" class="agg-watch-strip"></div><div id="shock-events-root"></div><div id="battle-viz-root" class="bv-root"></div><div id="battle-cards"></div>`;
 }
 
 function modelTfLabel() {
