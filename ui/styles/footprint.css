@@ -2857,6 +2857,12 @@ select {
   box-shadow: inset 3px 0 0 var(--cancel);
   background: rgba(212, 137, 58, 0.1);
 }
+.shock-card.shape.ask-wall,
+.shock-card.shape.bid-wall {
+  border-color: rgba(110, 168, 220, 0.55);
+  box-shadow: inset 3px 0 0 #6ea8dc;
+  background: rgba(110, 168, 220, 0.1);
+}
 
 .shock-card-title {
   font-size: 11px;
@@ -2870,6 +2876,7 @@ select {
 .shock-card.huge.sell .shock-card-title { color: var(--sell); }
 .shock-card.vacuum .shock-card-title { color: var(--wall); }
 .shock-card.shock .shock-card-title { color: var(--cancel); }
+.shock-card.shape .shock-card-title { color: #6ea8dc; }
 
 .shock-card-money {
   font-family: var(--mono);
@@ -3032,6 +3039,45 @@ select {
 
 .push-card.buy { border-left: 3px solid var(--buy); }
 .push-card.sell { border-left: 3px solid var(--sell); }
+.push-card.smart {
+  background: rgba(20, 28, 40, 0.96);
+}
+.push-card.smart.pri-critical {
+  box-shadow: inset 0 0 0 1px rgba(212, 137, 58, 0.45);
+}
+.push-card.smart.pri-important {
+  box-shadow: inset 0 0 0 1px rgba(110, 168, 220, 0.35);
+}
+.push-card-top em.smart-tag {
+  letter-spacing: 0.06em;
+  font-size: 9px;
+  color: #6ea8dc;
+}
+.push-card.pri-critical .push-card-top em.smart-tag {
+  color: var(--cancel);
+}
+.push-card-title {
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  color: var(--text-0);
+  line-height: 1.25;
+}
+.push-card-metrics {
+  display: flex;
+  gap: 10px;
+  font-size: 11px;
+  color: var(--text-2);
+}
+.push-card-metrics b {
+  color: var(--text-0);
+  font-variant-numeric: tabular-nums;
+}
+.push-conf {
+  color: var(--cancel);
+  font-weight: 700;
+  margin-right: 6px;
+}
 
 .push-card-top {
   display: flex;

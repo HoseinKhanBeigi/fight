@@ -19,6 +19,7 @@ import {
   WATCHLIST,
 } from "./watchlist.js";
 import { WatchlistAggressionWatcher } from "./aggression-watch.js";
+import { SmartAlertEngine } from "./smart-alert.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const UI_ROOT = path.resolve(path.join(__dirname, "..", "ui"));
@@ -134,6 +135,23 @@ let broadcastTimer = null;
 let tickerTimer = null;
 let aggressionWatch = null;
 let aggressionStatusTimer = null;
+let smartAlerts = null;
+
+function ensureSmartAlerts() {
+  if (smartAlerts) return smartAlerts;
+  smartAlerts = new SmartAlertEngine({
+    battleWindowSec: 60,
+    onAlert: (alert) => {
+      let clients = 0;
+      for (const c of wss.clients) if (c.readyState === 1) clients += 1;
+      console.log(
+        `[SMART ${alert.priority}] ${alert.symbol} ${alert.title} → UI clients: ${clients}`
+      );
+      broadcast({ type: "smartAlert", payload: alert });
+    },
+  });
+  return smartAlerts;
+}
 
 function broadcast(obj) {
   const raw = JSON.stringify(obj);
@@ -226,6 +244,7 @@ async function _startMonitor(next) {
 
   symbol = next;
   console.log(`Live feed → ${symbol.toUpperCase()}`);
+  ensureSmartAlerts().clear();
 
   monitor = new OrderFlowMonitor({
     ...CONFIG,
@@ -262,9 +281,12 @@ async function _startMonitor(next) {
 
 function startBroadcast() {
   if (broadcastTimer) clearInterval(broadcastTimer);
+  const engine = ensureSmartAlerts();
   broadcastTimer = setInterval(() => {
     if (!monitor || switching) return;
     const payload = monitor.snapshot();
+    engine.evaluate(payload);
+    payload.smartAlerts = engine.statusSnapshot();
     broadcast({ type: "snapshot", payload });
   }, 250);
 

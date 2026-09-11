@@ -44,6 +44,8 @@ export class WatchlistAggressionWatcher {
       })
     );
 
+    /** @type {Map<string, number[]>} recent trigger USD for percentile */
+    this.triggerHist = new Map();
     /** @type {Map<string, {ts:number, side:'buy'|'sell', usd:number}[]>} */
     this.prints = new Map();
     /** @type {Map<string, number>} last alert ts by `${symbol}:${side}` */
@@ -224,6 +226,22 @@ export class WatchlistAggressionWatcher {
     }
   }
 
+  _percentile(symbol, side, value) {
+    const key = `${symbol}:${side}`;
+    let arr = this.triggerHist.get(key);
+    if (!arr) {
+      arr = [];
+      this.triggerHist.set(key, arr);
+    }
+    arr.push(value);
+    while (arr.length > 200) arr.shift();
+    if (arr.length < 8) return null;
+    const sorted = [...arr].sort((a, b) => a - b);
+    let below = 0;
+    for (const x of sorted) if (x < value) below += 1;
+    return Math.round((below / (sorted.length - 1)) * 100);
+  }
+
   _maybeAlert(meta, side, sideUsd, otherUsd, nowMs) {
     if (!(sideUsd >= this.thresholdUsd)) return;
     const key = `${meta.symbol}:${side}`;
@@ -231,6 +249,8 @@ export class WatchlistAggressionWatcher {
     if (nowMs - last < COOLDOWN_MS) return;
     this.lastAlertAt.set(key, nowMs);
 
+    const percentile = this._percentile(meta.symbol, side, sideUsd);
+    const alertType = side === "buy" ? "RAW_BUY_AGGRESSION" : "RAW_SELL_AGGRESSION";
     const alert = {
       id: `${meta.symbol}-${side}-${nowMs}`,
       ts: nowMs,
@@ -243,6 +263,12 @@ export class WatchlistAggressionWatcher {
       aggressiveSellUsd: side === "sell" ? sideUsd : otherUsd,
       triggerUsd: sideUsd,
       price: this.lastPrice.get(meta.symbol) ?? null,
+      layer: "raw",
+      alertType,
+      type: alertType,
+      priority: "INFO",
+      title: side === "buy" ? "BUY AGGRESSION" : "SELL AGGRESSION",
+      percentile,
       message:
         side === "buy"
           ? `${meta.label} ${this.windowSec}s aggressive BUY ${fmtUsdShort(sideUsd)} (>${fmtUsdShort(this.thresholdUsd)})`

@@ -12,6 +12,7 @@ import { FootprintAggregator } from "./footprint.js";
 import { PreMovePressureEngine } from "./microstructure/PreMovePressureEngine.js";
 import { fetchAggTradesHistory, lookbackForInterval } from "./history.js";
 import { MultiVenueLiquidity } from "./venues/MultiVenueLiquidity.js";
+import { computeBookShape } from "./book-shape.js";
 
 function mergeWindows(a = [], b = []) {
   return [...new Set([...a, ...b])].sort((x, y) => x - y);
@@ -321,6 +322,14 @@ export class OrderFlowMonitor {
     const nearBidLiq = this.book.totalNearLiquidity("bid", 3);
     this.multiVenue.syncBinance(this.book);
     const multiVenue = this.multiVenue.snapshot(now);
+    const bookShape = computeBookShape(this.book, {
+      nearLevels: this.config.preMove?.nearTouchLevels ?? 3,
+      depthLevels: this.config.preMove?.depthLevels ?? 20,
+      ladder:
+        this.depthLadder?.bids?.length && this.depthLadder?.asks?.length
+          ? this.depthLadder
+          : null,
+    });
     const bookReady = this.ready && this.feed.bookReady;
     const staleBook = this.book.lastEventTime > 0 && now - this.book.lastEventTime > 2;
     const tradesReady = this.flow.trades.length > 0;
@@ -496,6 +505,7 @@ export class OrderFlowMonitor {
       liqWindows,
       bidLiquidity: bidLiq,
       askLiquidity: askLiq,
+      bookShape,
       multiVenue,
       bidLiquidityRange: this.book.nearPriceRange("bid", 20),
       askLiquidityRange: this.book.nearPriceRange("ask", 20),

@@ -979,21 +979,7 @@ function renderPushDock() {
       <button type="button" id="push-clear" class="push-clear">Clear</button>
     </div>
     <div class="push-dock-list">
-      ${items
-        .map(
-          (a) => `
-        <button type="button" class="push-card ${a.side}" data-id="${a.id}" data-sym="${a.symbol}">
-          <div class="push-card-top">
-            <b>${a.label || a.symbol}</b>
-            <em>${a.side === "buy" ? "BUY" : "SELL"}</em>
-            <span>${fmtClockMs(a.ts)}</span>
-          </div>
-          <div class="push-card-money">${fmtUsd(a.triggerUsd)}</div>
-          <div class="push-card-msg">${a.message}</div>
-          <div class="push-card-meta">${a.windowSec || "—"}s aggressive · threshold ${fmtUsd(a.thresholdUsd)}</div>
-        </button>`
-        )
-        .join("")}
+      ${items.map((a) => renderPushCard(a)).join("")}
     </div>`;
 
   $("push-clear")?.addEventListener("click", () => {
@@ -1008,26 +994,98 @@ function renderPushDock() {
   });
 }
 
+function renderPushCard(a) {
+  const isSmart = a.layer === "smart" || (a.alertType && !String(a.alertType).startsWith("RAW_"));
+  const side = a.side === "sell" ? "sell" : "buy";
+  const pri = String(a.priority || (isSmart ? "IMPORTANT" : "INFO")).toLowerCase();
+  if (isSmart) {
+    const atk = a.attackPower != null ? Math.round(Number(a.attackPower)) : "—";
+    const def = a.defensePower != null ? Math.round(Number(a.defensePower)) : "—";
+    const sp = a.battleSpread;
+    const spr = sp == null || !Number.isFinite(Number(sp)) ? "—" : `${Number(sp) > 0 ? "+" : ""}${Math.round(Number(sp))}`;
+    const conf = a.confidence === "LOW_CONFIDENCE" ? `<span class="push-conf">LOW CONF</span>` : "";
+    return `
+      <button type="button" class="push-card smart ${side} pri-${pri}" data-id="${a.id}" data-sym="${a.symbol}">
+        <div class="push-card-top">
+          <b>${a.label || a.symbol}</b>
+          <em class="smart-tag">${a.priority || "SMART"}</em>
+          <span>${fmtClockMs(a.ts)}</span>
+        </div>
+        <div class="push-card-title">${a.title || prettyState(a.alertType || a.type || "")}</div>
+        <div class="push-card-metrics">
+          <span>Atk <b>${atk}</b></span>
+          <span>Def <b>${def}</b></span>
+          <span>Spr <b>${spr}</b></span>
+        </div>
+        <div class="push-card-msg">${a.message || ""}</div>
+        <div class="push-card-meta">${conf}${a.cancelBand ? `Cancel ${a.cancelBand}` : ""}${a.refillBand ? ` · Refill ${a.refillBand}` : ""}${a.efficiency != null ? ` · Eff ${Math.round(Number(a.efficiency))}` : ""} · ${a.timeframeSec || a.windowSec || "—"}s</div>
+      </button>`;
+  }
+  const pct =
+    a.percentile != null && Number.isFinite(Number(a.percentile))
+      ? ` · ${Math.round(Number(a.percentile))}th`
+      : "";
+  return `
+    <button type="button" class="push-card raw ${side} pri-info" data-id="${a.id}" data-sym="${a.symbol}">
+      <div class="push-card-top">
+        <b>${a.label || a.symbol}</b>
+        <em>${a.side === "buy" ? "BUY" : "SELL"}</em>
+        <span>${fmtClockMs(a.ts)}</span>
+      </div>
+      <div class="push-card-money">${fmtUsd(a.triggerUsd)}</div>
+      <div class="push-card-msg">${a.title || a.message || ""}</div>
+      <div class="push-card-meta">${a.windowSec || "—"}s aggressive${pct} · threshold ${fmtUsd(a.thresholdUsd)}</div>
+    </button>`;
+}
+
 function pushAggressionAlert(alert) {
   if (!alert) return;
-  ui.pushAlerts = [alert, ...ui.pushAlerts.filter((a) => a.id !== alert.id)].slice(0, 20);
+  const normalized = {
+    ...alert,
+    layer: alert.layer || "raw",
+    priority: alert.priority || "INFO",
+  };
+  ui.pushAlerts = [normalized, ...ui.pushAlerts.filter((a) => a.id !== normalized.id)].slice(0, 24);
   renderPushDock();
+  notifyBrowser(normalized);
+}
 
-  // Browser notification when permitted (optional)
+function pushSmartAlert(alert) {
+  if (!alert) return;
+  const normalized = {
+    ...alert,
+    layer: "smart",
+    priority: alert.priority || "IMPORTANT",
+  };
+  ui.pushAlerts = [normalized, ...ui.pushAlerts.filter((a) => a.id !== normalized.id)].slice(0, 24);
+  renderPushDock();
+  if (normalized.priority === "CRITICAL" || normalized.priority === "IMPORTANT") {
+    notifyBrowser(normalized);
+  }
+}
+
+function notifyBrowser(alert) {
   try {
-    if (typeof Notification !== "undefined") {
-      if (Notification.permission === "granted") {
-        const n = new Notification(alert.message, {
-          body: `${alert.symbol} · ${alert.windowSec || "—"}s aggressive ${alert.side.toUpperCase()} ${fmtUsd(alert.triggerUsd)}`,
-          tag: `agg-${alert.symbol}-${alert.side}`,
-        });
-        n.onclick = () => {
-          window.focus();
-          switchSymbol(alert.symbol);
-        };
-      } else if (Notification.permission === "default") {
-        Notification.requestPermission().catch(() => {});
-      }
+    if (typeof Notification === "undefined") return;
+    if (Notification.permission === "granted") {
+      const title =
+        alert.layer === "smart"
+          ? `${alert.label || alert.symbol} · ${alert.title || alert.alertType}`
+          : alert.message || `${alert.symbol} aggression`;
+      const body =
+        alert.layer === "smart"
+          ? alert.message || ""
+          : `${alert.symbol} · ${alert.windowSec || "—"}s aggressive ${String(alert.side || "").toUpperCase()} ${fmtUsd(alert.triggerUsd)}`;
+      const n = new Notification(title, {
+        body,
+        tag: `${alert.layer || "raw"}-${alert.symbol}-${alert.alertType || alert.side}`,
+      });
+      n.onclick = () => {
+        window.focus();
+        switchSymbol(alert.symbol);
+      };
+    } else if (Notification.permission === "default") {
+      Notification.requestPermission().catch(() => {});
     }
   } catch {
     /* ignore */
@@ -1102,6 +1160,8 @@ function refreshBattleViz() {
     upside: [...(ui.battleViz.upside.hist || [])],
     downside: [...(ui.battleViz.downside.hist || [])],
   });
+  window.__smartAlerts = () => ui.last?.smartAlerts || null;
+  window.__smartAlertBacktest = () => ui.last?.smartAlerts?.backtest || null;
 }
 
 /**
@@ -1231,6 +1291,21 @@ function detectShockEvents(s) {
     });
   }
 
+  const bs = s.bookShape;
+  if (bs?.alert) {
+    const touchPct = bs.touchImb == null ? "—" : `${(bs.touchImb * 100).toFixed(0)}%`;
+    const farPct = bs.farImb == null ? "—" : `${(bs.farImb * 100).toFixed(0)}%`;
+    events.push({
+      id: bs.alert.id,
+      kind: "shape",
+      side: bs.alert.side,
+      title: bs.alert.title,
+      detail: bs.alert.detail,
+      money: notional((bs.nearBid || 0) + (bs.nearAsk || 0), px),
+      secondary: `Touch imb ${touchPct} (L1–${bs.nearLevels}) · Far imb ${farPct} (L${bs.nearLevels + 1}–${bs.depthLevels}) · near ${fmtUsd(notional((bs.nearBid || 0) + (bs.nearAsk || 0), px))} · far ${fmtUsd(notional((bs.farBid || 0) + (bs.farAsk || 0), px))}`,
+    });
+  }
+
   // Combined: huge aggression into a vacuum is the strongest shock
   if (hugeBuy && upsideVacuum) {
     events.unshift({
@@ -1266,7 +1341,7 @@ function renderShockEvents(s) {
       <div class="shock-panel is-clear">
         <div class="shock-head">
           <div class="shock-title">Aggression & vacuum</div>
-          <div class="shock-sub">${tf} · no huge aggression / vacuum alert</div>
+          <div class="shock-sub">${tf} · no aggression / vacuum / touch-far alert</div>
         </div>
       </div>`;
   }
@@ -1286,7 +1361,7 @@ function renderShockEvents(s) {
   return `
     <div class="shock-panel has-alerts">
       <div class="shock-head">
-        <div class="shock-title">Aggression & vacuum</div>
+        <div class="shock-title">Aggression, vacuum & book shape</div>
         <div class="shock-sub">${tf} · ${events.length} active alert${events.length > 1 ? "s" : ""}</div>
       </div>
       <div class="shock-grid">${cards}</div>
@@ -1554,6 +1629,8 @@ function connect() {
       });
     } else if (data.type === "aggressionAlert") {
       pushAggressionAlert(data.payload);
+    } else if (data.type === "smartAlert") {
+      pushSmartAlert(data.payload);
     } else if (data.type === "aggressionWatch") {
       ui.aggressionWatch = data.payload;
       ensureFightShell();
