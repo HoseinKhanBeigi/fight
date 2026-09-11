@@ -159,8 +159,8 @@ function startAggressionWatch() {
   if (aggressionWatch) return;
   aggressionWatch = new WatchlistAggressionWatcher({
     thresholdUsd: 500_000,
-    windowSec: 5,
-    exclude: new Set(),
+    windowSec: 15,
+    include: ["XRPUSDT", "SOLUSDT"],
     onAlert: (alert) => {
       let clients = 0;
       for (const c of wss.clients) if (c.readyState === 1) clients += 1;
@@ -177,8 +177,11 @@ function startAggressionWatch() {
     if (!aggressionWatch) return;
     broadcast({ type: "aggressionWatch", payload: aggressionWatch.snapshot() });
   }, 2000);
+  const aggSnap = aggressionWatch.snapshot();
   console.log(
-    `Aggression watch → ${aggressionWatch.watchedSymbols().join(", ")} (5s > $500K)`
+    `Aggression watch → ${aggressionWatch.watchedSymbols().join(", ")} (${aggSnap.windowSec}s > $${(
+      aggSnap.thresholdUsd / 1000
+    ).toFixed(0)}K)`
   );
 }
 

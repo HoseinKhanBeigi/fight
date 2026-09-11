@@ -1,8 +1,10 @@
 /**
  * Background watchlist aggression scanner.
  *
- * Watches ALL watchlist symbols via Binance Futures aggTrade.
- * Alerts when 5-second aggressive buy OR sell notional exceeds threshold (default $500k).
+ * Watches watchlist symbols via Binance Futures aggTrade — all of them by
+ * default, or only `include` when that is given.
+ * Alerts when aggressive buy OR sell notional over `windowSec` exceeds the
+ * threshold (default $500k).
  * Independent of the focused OrderFlowMonitor symbol.
  */
 
@@ -13,7 +15,6 @@ import { WATCHLIST } from "./watchlist.js";
 const EXCLUDE = new Set();
 const DEFAULT_THRESHOLD_USD = 500_000;
 const WINDOW_SEC = 5;
-const COOLDOWN_MS = 5_000;
 
 function notional(qty, price) {
   const q = Number(qty);
@@ -27,22 +28,33 @@ export class WatchlistAggressionWatcher {
     thresholdUsd = DEFAULT_THRESHOLD_USD,
     windowSec = WINDOW_SEC,
     exclude = EXCLUDE,
+    include = null,
+    cooldownMs = null,
     onAlert = null,
     onStatus = null,
   } = {}) {
     this.thresholdUsd = thresholdUsd;
     this.windowSec = windowSec;
     this.exclude = exclude instanceof Set ? exclude : new Set(exclude);
+    this.include =
+      include && include.length
+        ? new Set([...include].map((s) => String(s).toUpperCase()))
+        : null;
+    // One burst stays inside the window for its full length, so a cooldown
+    // shorter than the window would re-alert on the same trades.
+    this.cooldownMs = cooldownMs ?? this.windowSec * 1000;
     this.onAlert = onAlert;
     this.onStatus = onStatus;
 
-    this.symbols = WATCHLIST.filter((c) => !this.exclude.has(c.symbol.toUpperCase())).map(
-      (c) => ({
-        symbol: c.symbol.toUpperCase(),
-        label: c.label,
-        lower: c.symbol.toLowerCase(),
-      })
-    );
+    this.symbols = WATCHLIST.filter((c) => {
+      const sym = c.symbol.toUpperCase();
+      if (this.include) return this.include.has(sym);
+      return !this.exclude.has(sym);
+    }).map((c) => ({
+      symbol: c.symbol.toUpperCase(),
+      label: c.label,
+      lower: c.symbol.toLowerCase(),
+    }));
 
     /** @type {Map<string, number[]>} recent trigger USD for percentile */
     this.triggerHist = new Map();
@@ -246,7 +258,7 @@ export class WatchlistAggressionWatcher {
     if (!(sideUsd >= this.thresholdUsd)) return;
     const key = `${meta.symbol}:${side}`;
     const last = this.lastAlertAt.get(key) || 0;
-    if (nowMs - last < COOLDOWN_MS) return;
+    if (nowMs - last < this.cooldownMs) return;
     this.lastAlertAt.set(key, nowMs);
 
     const percentile = this._percentile(meta.symbol, side, sideUsd);
@@ -296,6 +308,8 @@ export class WatchlistAggressionWatcher {
       status: this.status,
       thresholdUsd: this.thresholdUsd,
       windowSec: this.windowSec,
+      cooldownMs: this.cooldownMs,
+      include: this.include ? [...this.include] : null,
       exclude: [...this.exclude],
       watching: this.symbols.map((s) => s.symbol),
       rows,
