@@ -525,6 +525,9 @@ export class OrderFlowMonitor {
         ])
       ),
       liqWindows,
+      // Book-derived windows (exec/cancel/refill) are live-only; this says how
+      // much history they actually cover.
+      bookCoverageSec: this.liquidity.rolling.coverageSec(now),
       bidLiquidity: bidLiq,
       askLiquidity: askLiq,
       bookShape,

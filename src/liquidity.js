@@ -57,6 +57,16 @@ export class RollingSideMetric {
     while (this.events.length && this.events[0].ts < cutoff) this.events.shift();
   }
 
+  /**
+   * Seconds of book history actually held. Cancels and refills are derived from
+   * live depth deltas and cannot be backfilled, so a 45m window may hold far
+   * less than 45m of data and callers must not present it as a full window.
+   */
+  coverageSec(now) {
+    if (!this.events.length) return 0;
+    return Math.max(0, now - this.events[0].ts);
+  }
+
   sum(now) {
     /** @type {Record<number, object>} */
     const out = {};

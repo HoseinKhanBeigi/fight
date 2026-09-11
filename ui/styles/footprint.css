@@ -1063,6 +1063,16 @@ select {
   letter-spacing: 0.02em;
 }
 
+/* Live-only book history that does not yet fill the selected window. */
+.fight-stats .cov-note {
+  display: block;
+  font-style: normal;
+  color: var(--warn);
+  font-size: 9px;
+  letter-spacing: 0.02em;
+  opacity: 0.85;
+}
+
 .fight-stats b {
   color: var(--text-0);
   font-weight: 600;

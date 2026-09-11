@@ -108,18 +108,45 @@ function fmtRange(range) {
   return `${fmtPx(lo)} – ${fmtPx(hi)}`;
 }
 
-function statLine(label, qty, price, range, cls = "", absorbTag = "") {
+function statLine(label, qty, price, range, cls = "", absorbTag = "", covNote = "") {
   const band = fmtRange(range);
   const tag = absorbTag
     ? `<em class="absorb-tag" title="Absorption estimate">${absorbTag}</em>`
     : "";
+  const cov = covNote
+    ? `<em class="cov-note" title="Book cancels and refills are live-only and cannot be backfilled, so this window is not full yet">${covNote}</em>`
+    : "";
   return `<span class="${cls}${absorbTag ? " absorbing" : ""}">${label} ${usdLine(qty, price)}${
     tag
-  }${band ? `<em class="px-band" title="Price window for this metric">${band}</em>` : ""}</span>`;
+  }${cov}${band ? `<em class="px-band" title="Price window for this metric">${band}</em>` : ""}</span>`;
+}
+
+function fmtDur(sec) {
+  const s = Math.max(0, Math.round(Number(sec) || 0));
+  if (s < 60) return `${s}s`;
+  const m = Math.floor(s / 60);
+  if (m < 60) return `${m}m`;
+  const h = Math.floor(m / 60);
+  return `${h}h${m % 60 ? `${m % 60}m` : ""}`;
+}
+
+/**
+ * Share of the visible resting book this side is consuming per minute.
+ * Rate-based so the number means the same thing on 1m and 45m; the old form
+ * divided a window total by instantaneous depth and grew with the window.
+ */
+function bookConsumptionPerMinute(volume, windowSec, depth) {
+  const d = Number(depth);
+  const w = Number(windowSec);
+  if (!Number.isFinite(d) || d <= 0 || !Number.isFinite(w) || w <= 0) return 0;
+  const perMinute = ((Number(volume) || 0) / w) * 60;
+  return perMinute / d;
 }
 
 function battleShare(battle) {
-  const attack = Math.min(Number(battle?.attackScore) || 0, 3) / 3;
+  // attackScore is now "fraction of the visible book consumed per minute";
+  // eating the whole visible book inside a minute is full attack.
+  const attack = Math.max(0, Math.min(1, Number(battle?.attackScore) || 0));
   const exec = Math.max(0, Math.min(1, Number(battle?.executionRatio) || 0));
   const refill = Math.max(0, Math.min(1, Number(battle?.refillRatio) || 0));
   const force = Math.max(
@@ -202,7 +229,7 @@ function renderClassicFight(s) {
       (liq.askExec ?? 0) > 0
         ? (liq.askRefill ?? 0) / Math.max(liq.askExec, 1e-9)
         : s.buyBattle?.refillRatio ?? 0,
-    attackScore: (flow.aggressiveBuyVolume ?? 0) / Math.max(s.askLiquidity || 0, 1e-9),
+    attackScore: bookConsumptionPerMinute(flow.aggressiveBuyVolume, w, s.askLiquidity),
   };
   const sellMeter = {
     ...sell,
@@ -214,7 +241,7 @@ function renderClassicFight(s) {
       (liq.bidExec ?? 0) > 0
         ? (liq.bidRefill ?? 0) / Math.max(liq.bidExec, 1e-9)
         : s.sellBattle?.refillRatio ?? 0,
-    attackScore: (flow.aggressiveSellVolume ?? 0) / Math.max(s.bidLiquidity || 0, 1e-9),
+    attackScore: bookConsumptionPerMinute(flow.aggressiveSellVolume, w, s.bidLiquidity),
   };
 
   const b = battleShare(buyMeter);
@@ -224,6 +251,13 @@ function renderClassicFight(s) {
   const sellResult = abs.bid ? "BID ABSORPTION · SELLERS ABSORBED" : sell.result || "NEUTRAL";
   const buyAbsorbRange = mergeRanges(liq.askExecRange, liq.askRefillRange);
   const sellAbsorbRange = mergeRanges(liq.bidExecRange, liq.bidRefillRange);
+
+  // Exec/cancel/refill come from live depth deltas, so right after a restart
+  // they cover far less than the selected window. Say so rather than implying
+  // a full window of data.
+  const bookCov = Number(s.bookCoverageSec);
+  const covNote =
+    Number.isFinite(bookCov) && bookCov < w - 2 ? `${fmtDur(bookCov)} of ${tf}` : "";
 
   return `
     <div class="classic-fight" aria-label="Classic aggressive vs passive summary">
@@ -241,10 +275,10 @@ function renderClassicFight(s) {
         <div class="fight-stats">
           ${statLine("Aggressive", buy.aggressiveVolume, px, null, "", abs.aggressiveBuy ? "ABSORBED" : "")}
           ${statLine("Ask liq", buy.passiveLiquidity, px, s.askLiquidityRange, "pas", abs.ask ? "ABSORBING" : "")}
-          ${statLine("Executed", buy.executed, px, liq.askExecRange, "exec")}
-          ${statLine("Cancelled", buy.cancelled, px, liq.askCancelRange, "cancel")}
-          ${statLine("Refilled", buy.refill, px, liq.askRefillRange, "refill")}
-          ${statLine("Absorbed", buy.absorbed, px, buyAbsorbRange, "absorb", abs.ask ? "ACTIVE" : "")}
+          ${statLine("Executed", buy.executed, px, liq.askExecRange, "exec", "", covNote)}
+          ${statLine("Cancelled", buy.cancelled, px, liq.askCancelRange, "cancel", "", covNote)}
+          ${statLine("Refilled", buy.refill, px, liq.askRefillRange, "refill", "", covNote)}
+          ${statLine("Absorbed", buy.absorbed, px, buyAbsorbRange, "absorb", abs.ask ? "ACTIVE" : "", covNote)}
         </div>
         <div class="fight-result ${stateClass(buyResult)}">${buyResult}</div>
         <div class="fight-hint">Absorbed = min(aggression, executed, refilled) — size soaked by asks (est.).</div>
@@ -263,10 +297,10 @@ function renderClassicFight(s) {
         <div class="fight-stats">
           ${statLine("Aggressive", sell.aggressiveVolume, px, null, "", abs.aggressiveSell ? "ABSORBED" : "")}
           ${statLine("Bid liq", sell.passiveLiquidity, px, s.bidLiquidityRange, "pas", abs.bid ? "ABSORBING" : "")}
-          ${statLine("Executed", sell.executed, px, liq.bidExecRange, "exec")}
-          ${statLine("Cancelled", sell.cancelled, px, liq.bidCancelRange, "cancel")}
-          ${statLine("Refilled", sell.refill, px, liq.bidRefillRange, "refill")}
-          ${statLine("Absorbed", sell.absorbed, px, sellAbsorbRange, "absorb", abs.bid ? "ACTIVE" : "")}
+          ${statLine("Executed", sell.executed, px, liq.bidExecRange, "exec", "", covNote)}
+          ${statLine("Cancelled", sell.cancelled, px, liq.bidCancelRange, "cancel", "", covNote)}
+          ${statLine("Refilled", sell.refill, px, liq.bidRefillRange, "refill", "", covNote)}
+          ${statLine("Absorbed", sell.absorbed, px, sellAbsorbRange, "absorb", abs.bid ? "ACTIVE" : "", covNote)}
         </div>
         <div class="fight-result ${stateClass(sellResult)}">${sellResult}</div>
         <div class="fight-hint">Absorbed = min(aggression, executed, refilled) — size soaked by bids (est.).</div>
