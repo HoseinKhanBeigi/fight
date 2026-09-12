@@ -14,7 +14,7 @@ import { WATCHLIST } from "./watchlist.js";
 
 const EXCLUDE = new Set();
 const DEFAULT_THRESHOLD_USD = 500_000;
-const WINDOW_SEC = 5;
+const WINDOW_SEC = 60;
 
 function notional(qty, price) {
   const q = Number(qty);

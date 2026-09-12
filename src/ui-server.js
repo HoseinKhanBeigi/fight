@@ -159,7 +159,7 @@ function startAggressionWatch() {
   if (aggressionWatch) return;
   aggressionWatch = new WatchlistAggressionWatcher({
     thresholdUsd: 500_000,
-    windowSec: 15,
+    windowSec: 60,
     include: ["XRPUSDT", "SOLUSDT"],
     onAlert: (alert) => {
       let clients = 0;
