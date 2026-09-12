@@ -43,17 +43,27 @@ const INTERVALS = [
   { sec: 2700, label: "45m" },
 ];
 
+/** Footprint column bucket sizes */
+const FP_INTERVALS = [
+  { sec: 5, label: "5s" },
+  { sec: 15, label: "15s" },
+  { sec: 30, label: "30s" },
+  { sec: 60, label: "1m" },
+  { sec: 300, label: "5m" },
+];
 
 const ui = {
   symbol: "SOLUSDT",
   interval: 60,
+  fpInterval: 5,
+  fpSwitching: false,
   battleViz: null,
   battleVizPaintAt: 0,
   last: null,
   ticker24h: null,
   headerReady: false,
   switching: false,
-  aggressionWatch: null,
+  stickRight: true,
   pushAlerts: [],
 };
 
@@ -95,6 +105,39 @@ function fmtUsd(n) {
 function usdLine(qty, price) {
   const n = notional(qty, price);
   return `<b title="${fmt(qty)} base @ ${fmtPx(price)}">${fmtUsd(n)}</b><small>${fmt(qty)}</small>`;
+}
+
+function clock(ts, intervalSec = 5) {
+  const d = new Date(ts * 1000);
+  if (Number(intervalSec) >= 60) {
+    return d.toLocaleTimeString("en-GB", {
+      hour12: false,
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+  }
+  return d.toLocaleTimeString("en-GB", {
+    hour12: false,
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+  });
+}
+
+function cellUsdText(qty, price) {
+  const n = notional(qty, price);
+  if (n < 1) return "";
+  return fmtUsd(n);
+}
+
+function resolveResting(resting, p) {
+  if (!resting) return null;
+  if (resting[p]) return resting[p];
+  if (resting[String(p)]) return resting[String(p)];
+  for (const [k, v] of Object.entries(resting)) {
+    if (Math.abs(Number(k) - p) < 1e-8) return v;
+  }
+  return null;
 }
 
 /** Price band where a metric was observed, e.g. 76900 – 80500 */
@@ -1145,46 +1188,179 @@ function notifyBrowser(alert) {
   }
 }
 
-function renderAggressionWatchStrip() {
-  const host = $("agg-watch-strip");
-  if (!host) return;
-  const snap = ui.aggressionWatch;
-  if (!snap) {
-    host.innerHTML = `<div class="agg-watch-line">Background watch: starting…</div>`;
+function syncFpIntervalButtons() {
+  $("fp-iv")?.querySelectorAll("button").forEach((btn) => {
+    btn.classList.toggle("active", Number(btn.dataset.n) === ui.fpInterval);
+  });
+}
+
+function setFootprintInterval(sec) {
+  const n = Number(sec);
+  if (!n || n === ui.fpInterval) return;
+  ui.fpInterval = n;
+  ui.fpSwitching = true;
+  syncFpIntervalButtons();
+  const el = $("chart");
+  if (el) {
+    el.innerHTML = `<div class="empty-msg">Building ${
+      FP_INTERVALS.find((it) => it.sec === n)?.label || `${n}s`
+    } footprint…</div>`;
+  }
+  send({ type: "setFootprintInterval", intervalSec: n });
+}
+
+/**
+ * Simple footprint: time → columns, price ↓ rows.
+ * Each cell = aggressive trade notional at that price in that time bucket.
+ * Red row = sellers hitting bids. Green row = buyers lifting asks.
+ */
+function renderSimpleFootprint(s) {
+  const host = $("footprint-root");
+  const el = $("chart");
+  if (!host || !el) return;
+
+  const fp = s?.footprint;
+  if (fp?.intervalSec && !ui.switching) {
+    if (ui.fpSwitching) {
+      if (fp.intervalSec === ui.fpInterval) ui.fpSwitching = false;
+    } else {
+      ui.fpInterval = fp.intervalSec;
+    }
+    syncFpIntervalButtons();
+  }
+
+  const iv = ui.fpInterval || fp?.intervalSec || 5;
+  const sub = host.querySelector(".fp-panel-sub");
+  if (sub) {
+    const label = FP_INTERVALS.find((it) => it.sec === iv)?.label || `${iv}s`;
+    sub.textContent = ui.fpSwitching ? `switching to ${label}…` : `${label} buckets`;
+  }
+
+  if (ui.fpSwitching && fp?.intervalSec !== ui.fpInterval) {
+    el.innerHTML = `<div class="empty-msg">Building ${
+      FP_INTERVALS.find((it) => it.sec === ui.fpInterval)?.label || `${ui.fpInterval}s`
+    } footprint…</div>`;
     return;
   }
-  const hot = (snap.rows || []).filter((r) => r.hotBuy || r.hotSell);
-  host.innerHTML = `
-    <div class="agg-watch-line">
-      <b>Background watch</b>
-      <span>${snap.watching?.length || 0} coins · ${snap.windowSec || "—"}s &gt; ${fmtUsd(snap.thresholdUsd)}</span>
-      <em>${snap.status || ""}</em>
-    </div>
-    ${
-      hot.length
-        ? `<div class="agg-watch-hot">${hot
-            .map((r) => {
-              const pct = Number.isFinite(r.imbalancePct) ? r.imbalancePct : 0;
-              const imb = pct > 0 ? `+${pct}%` : `${pct}%`;
-              const cls = pct > 8 ? "buy" : pct < -8 ? "sell" : r.hotBuy ? "buy" : "sell";
-              return `<button type="button" class="agg-hot-chip ${cls}" data-sym="${r.symbol}">${r.label} IMB ${imb} · B ${fmtUsd(r.aggressiveBuyUsd)} / S ${fmtUsd(r.aggressiveSellUsd)}</button>`;
-            })
-            .join("")}</div>`
-        : `<div class="agg-watch-quiet">No coin over ${fmtUsd(snap.thresholdUsd)} aggressive in the last ${snap.windowSec || "—"}s</div>`
-    }`;
-  host.querySelectorAll("[data-sym]").forEach((btn) => {
-    btn.addEventListener("click", () => switchSymbol(btn.dataset.sym));
-  });
+
+  if (!fp || !fp.columns?.length || !fp.prices?.length) {
+    el.innerHTML = `<div class="empty-msg">${
+      ui.switching ? `Switching to ${ui.symbol}…` : "Waiting for trades to build the footprint…"
+    }</div>`;
+    return;
+  }
+
+  const prices = fp.prices;
+  const cols = fp.columns;
+  const last = fp.lastPrice ?? s.price;
+  const maxVol = fp.maxVol || 1;
+  const maxRest = fp.maxResting || 1;
+  const resting = fp.resting || {};
+  const bestBid = s.bestBid;
+  const bestAsk = s.bestAsk;
+  const rowCount = 1 + prices.length + 1;
+
+  let html = `<div class="fp-grid simple" style="grid-template-rows: repeat(${rowCount}, auto)">`;
+  html += `<div class="fp-corner">Price<br/><span class="sub">← book still resting</span></div>`;
+
+  for (const p of prices) {
+    const r = resolveResting(resting, p);
+    let cls = "fp-price";
+    if (last != null && Math.abs(p - last) < 1e-9) cls += " last";
+    else if (r?.side === "ask" || (bestAsk != null && p >= bestAsk)) cls += " ask";
+    else if (r?.side === "bid" || (bestBid != null && p <= bestBid)) cls += " bid";
+
+    const qty = r?.quantity || 0;
+    const barW = qty > 0 ? Math.min(100, (qty / maxRest) * 100) : 0;
+    const sideLabel = r?.side === "ask" ? "ASK" : r?.side === "bid" ? "BID" : "";
+    html += `<div class="${cls}" title="${sideLabel || "No resting size"} ${fmtUsd(notional(qty, p))}">
+      <div class="rest-bar ${r?.side || ""}" style="width:${barW}%"></div>
+      <div class="rest-main">
+        <span class="rest-px">${fmtPx(p)}</span>
+        <span class="rest-sz">${sideLabel ? `${sideLabel} ${fmtUsd(notional(qty, p))}` : ""}</span>
+      </div>
+    </div>`;
+  }
+  html += `<div class="fp-corner">Column net<br/><span class="sub">buy − sell</span></div>`;
+
+  for (const col of cols) {
+    html += `<div class="fp-time">${clock(col.t, iv)}</div>`;
+    for (const p of prices) {
+      const cell = col.cells?.[p] || col.cells?.[String(p)];
+      const buy = cell?.buy || 0;
+      const sell = cell?.sell || 0;
+      const hasTrade = buy > 1e-10 || sell > 1e-10;
+      if (!hasTrade) {
+        html += `<div class="fp-cell empty"></div>`;
+        continue;
+      }
+
+      const total = buy + sell;
+      const heat = total > 0 ? Math.min(1, total / maxVol) : 0;
+      const imb =
+        cell?.imbalance != null && Number.isFinite(Number(cell.imbalance))
+          ? Number(cell.imbalance)
+          : total > 0
+            ? (buy - sell) / total
+            : 0;
+      const imbPct = Math.round(imb * 100);
+      const absImb = Math.abs(imb);
+
+      let cls = "fp-cell simple-cell";
+      if (col.poc != null && Math.abs(col.poc - p) < 1e-9) cls += " poc";
+
+      // Color the whole box by aggressive imbalance strength
+      if (absImb >= 0.4) cls += imb > 0 ? " imb-buy imb-strong" : " imb-sell imb-strong";
+      else if (absImb >= 0.15) cls += imb > 0 ? " imb-buy imb-mild" : " imb-sell imb-mild";
+      else cls += " imb-even";
+
+      const tint =
+        imb > 0
+          ? `rgba(61,154,106,${0.08 + absImb * 0.45 + heat * 0.12})`
+          : imb < 0
+            ? `rgba(196,92,92,${0.08 + absImb * 0.45 + heat * 0.12})`
+            : `rgba(120,120,130,${0.06 + heat * 0.1})`;
+
+      const winner =
+        absImb >= 0.15
+          ? `${imb > 0 ? "BUY" : "SELL"} ${imbPct > 0 ? "+" : ""}${imbPct}%`
+          : `EVEN ${imbPct > 0 ? "+" : ""}${imbPct}%`;
+
+      html += `<div class="${cls}" title="At ${fmtPx(p)}: sold ${fmtUsd(notional(sell, p))} · bought ${fmtUsd(notional(buy, p))} · imbalance ${imbPct > 0 ? "+" : ""}${imbPct}%">
+        <div class="heat" style="background:${tint};opacity:1"></div>
+        <div class="stack">
+          <div class="stack-row sell"><span class="lab">Sold</span><span class="val">${cellUsdText(sell, p) || "—"}</span></div>
+          <div class="stack-row buy"><span class="lab">Bought</span><span class="val">${cellUsdText(buy, p) || "—"}</span></div>
+        </div>
+        <div class="winner ${imb > 0.15 ? "buy" : imb < -0.15 ? "sell" : ""}">${winner}</div>
+      </div>`;
+    }
+
+    const midPx = col.poc ?? last ?? s.price;
+    const dNotional = notional(col.delta, midPx);
+    const dCls = col.delta >= 0 ? "pos" : "neg";
+    const dLabel = col.delta > 0 ? "Bought +" : col.delta < 0 ? "Sold +" : "Even";
+    html += `<div class="fp-delta ${dCls}" title="Bought − sold notional in this time column">
+      ${dLabel}<br/>${fmtUsd(Math.abs(dNotional))}
+    </div>`;
+  }
+
+  html += `</div>`;
+  const nearRight = el.scrollWidth - el.clientWidth - el.scrollLeft < 40;
+  el.innerHTML = html;
+  if (ui.stickRight || nearRight) el.scrollLeft = el.scrollWidth;
 }
 
 function ensureFightShell() {
   const el = $("fight");
-  // Classic summary → aggression strip → Market Battle charts.
   if (
-    el.dataset.battleUx === "v6" &&
+    el.dataset.battleUx === "v8" &&
     el.querySelector("#classic-fight-root") &&
-    el.querySelector("#agg-watch-strip") &&
+    el.querySelector("#footprint-root") &&
+    el.querySelector("#fp-iv") &&
+    el.querySelector("#chart") &&
     el.querySelector("#battle-viz-root") &&
+    !el.querySelector("#agg-watch-strip") &&
     !el.querySelector("#path-test-root") &&
     !el.querySelector("#shock-events-root") &&
     !el.querySelector("#battle-cards") &&
@@ -1193,8 +1369,34 @@ function ensureFightShell() {
   ) {
     return;
   }
-  el.dataset.battleUx = "v6";
-  el.innerHTML = `<div id="classic-fight-root"></div><div id="agg-watch-strip" class="agg-watch-strip"></div><div id="battle-viz-root" class="bv-root"></div>`;
+  el.dataset.battleUx = "v8";
+  el.innerHTML = `<div id="classic-fight-root"></div>
+    <div id="footprint-root" class="fp-panel">
+      <div class="fp-panel-head">
+        <b>Footprint</b>
+        <span class="fp-panel-sub">5s buckets</span>
+        <div class="seg fp-iv" id="fp-iv" title="How wide each time column is">
+          ${FP_INTERVALS.map(
+            (it) => `<button type="button" data-n="${it.sec}">${it.label}</button>`
+          ).join("")}
+        </div>
+      </div>
+      <div class="fp-howto">
+        <span><em>→</em> Time moves right (each column = one bucket)</span>
+        <span><em>↓</em> Price is the left column</span>
+        <span><em class="sell">Sold</em> = aggressive sellers hitting bids</span>
+        <span><em class="buy">Bought</em> = aggressive buyers lifting asks</span>
+        <span><em>IMB %</em> = box turns green (buy) / red (sell) when unbalanced</span>
+        <span>Empty cell = no trades there · Bottom of column = who won that bucket</span>
+      </div>
+      <div id="chart" class="fp-chart"></div>
+    </div>
+    <div id="battle-viz-root" class="bv-root"></div>`;
+
+  $("fp-iv")?.querySelectorAll("button").forEach((btn) => {
+    btn.addEventListener("click", () => setFootprintInterval(btn.dataset.n));
+  });
+  syncFpIntervalButtons();
 }
 
 function modelTfLabel() {
@@ -1227,7 +1429,7 @@ function paintBattle(s, forcePaint = false) {
 
   const classic = $("classic-fight-root");
   if (classic) classic.innerHTML = renderClassicFight(s);
-  renderAggressionWatchStrip();
+  renderSimpleFootprint(s);
 
   const w = ui.interval;
   const pack = s.battlesByWindow?.[w] || s.battlesByWindow?.[String(w)] || null;
@@ -1246,8 +1448,8 @@ function paintBattle(s, forcePaint = false) {
 function renderFooter() {
   $("footer").innerHTML = `
     <div class="note" style="grid-column:1/-1">
-      Classic fight = aggressive vs passive summary · Market Battle charts = Attack vs Defense over time ·
-      Push alerts = raw 5s aggression · Engine math unchanged.
+      Classic fight = aggressive vs passive summary · Footprint = where aggressive buys/sells hit by price &amp; time ·
+      Market Battle charts = Attack vs Defense over time.
     </div>
   `;
 }
@@ -1269,6 +1471,7 @@ function switchSymbol(next) {
   send({ type: "setSymbol", symbol: sym.toLowerCase() });
   ui.battleViz = createBattleVizState();
   ui.battleVizPaintAt = 0;
+  ui.fpSwitching = false;
 }
 
 function ensureHeader() {
@@ -1451,18 +1654,6 @@ function connect() {
         status: data.status,
         symbol: ui.switching ? ui.symbol : ui.last?.symbol || ui.symbol,
       });
-    } else if (data.type === "aggressionAlert") {
-      pushAggressionAlert(data.payload);
-    } else if (data.type === "smartAlert") {
-      // Intentionally ignored — push alerts are raw aggression only
-    } else if (data.type === "aggressionWatch") {
-      ui.aggressionWatch = data.payload;
-      ensureFightShell();
-      renderAggressionWatchStrip();
-    } else if (data.type === "aggressionWatchStatus") {
-      if (!ui.aggressionWatch) ui.aggressionWatch = {};
-      ui.aggressionWatch.status = data.payload?.status || "";
-      renderAggressionWatchStrip();
     }
   };
 
@@ -1480,5 +1671,4 @@ function connect() {
 ensureHeader();
 renderHeader({ symbol: ui.symbol, connection: "RECONNECTING" });
 renderFooter();
-ensurePushDock();
 connect();

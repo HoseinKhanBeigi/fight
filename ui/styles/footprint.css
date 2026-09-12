@@ -1179,9 +1179,9 @@ select {
 
 .fp-grid {
   display: grid;
-  grid-template-columns: 128px;
+  grid-template-columns: 148px;
   grid-auto-flow: column;
-  grid-auto-columns: minmax(100px, 1fr);
+  grid-auto-columns: minmax(132px, 1fr);
   width: max-content;
   min-width: 100%;
   border: 1px solid var(--border-1);
@@ -1190,16 +1190,16 @@ select {
 
 .fp-corner .sub {
   color: var(--text-3);
-  font-size: 9px;
+  font-size: 10px;
   font-weight: 400;
   letter-spacing: 0;
   text-transform: none;
 }
 
 .fp-cell.simple-cell {
-  min-height: 42px;
-  padding: 3px 4px;
-  gap: 2px;
+  min-height: 64px;
+  padding: 6px 8px;
+  gap: 3px;
 }
 
 .fp-cell .stack {
@@ -1207,42 +1207,50 @@ select {
   z-index: 1;
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 3px;
 }
 
 .fp-cell .stack-row {
   display: flex;
   justify-content: space-between;
-  gap: 4px;
-  font-size: 10px;
-  line-height: 1.2;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 13px;
+  line-height: 1.25;
 }
 
 .fp-cell .stack-row .lab {
-  color: var(--text-3);
-  font-size: 9px;
+  color: var(--text-2);
+  font-size: 11px;
   text-transform: uppercase;
-  letter-spacing: 0.03em;
+  letter-spacing: 0.04em;
+  font-weight: 600;
+}
+
+.fp-cell .stack-row .val {
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: 0.01em;
 }
 
 .fp-cell .stack-row.sell .val {
   color: var(--sell);
-  font-weight: 600;
+  font-weight: 700;
 }
 .fp-cell .stack-row.buy .val {
   color: var(--buy);
-  font-weight: 600;
+  font-weight: 700;
 }
 
 .fp-cell .winner {
   position: relative;
   z-index: 1;
   text-align: center;
-  font-size: 8px;
-  letter-spacing: 0.06em;
-  font-weight: 650;
-  color: var(--text-3);
-  margin-top: 1px;
+  font-size: 12px;
+  letter-spacing: 0.04em;
+  font-weight: 700;
+  color: var(--text-2);
+  margin-top: 2px;
 }
 .fp-cell .winner.buy {
   color: var(--buy);
@@ -1252,9 +1260,10 @@ select {
 }
 
 .fp-delta {
-  line-height: 1.2;
-  font-size: 9px;
-  padding: 4px 3px;
+  line-height: 1.25;
+  font-size: 12px;
+  font-weight: 700;
+  padding: 6px 4px;
 }
 
 .fp-corner,
@@ -1273,9 +1282,9 @@ select {
   left: 0;
   z-index: 3;
   background: var(--bg-1);
-  padding: 4px 6px;
+  padding: 6px 8px;
   color: var(--text-3);
-  font-size: 10px;
+  font-size: 12px;
 }
 
 .fp-time {
@@ -1283,10 +1292,11 @@ select {
   top: 0;
   z-index: 2;
   background: var(--bg-1);
-  padding: 4px 4px;
+  padding: 6px 4px;
   text-align: center;
-  font-size: 10px;
-  color: var(--text-2);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-1);
 }
 
 .fp-price {
@@ -1294,9 +1304,10 @@ select {
   left: 0;
   z-index: 2;
   background: var(--bg-1);
-  padding: 2px 6px;
+  padding: 4px 8px;
   text-align: right;
-  font-size: 11px;
+  font-size: 13px;
+  font-weight: 600;
   color: var(--text-1);
   overflow: hidden;
 }
@@ -1331,9 +1342,10 @@ select {
   font-variant-numeric: tabular-nums;
 }
 .fp-price .rest-sz {
-  font-size: 9px;
-  color: var(--text-3);
+  font-size: 11px;
+  color: var(--text-2);
   font-variant-numeric: tabular-nums;
+  font-weight: 600;
 }
 .fp-price.ask .rest-sz {
   color: var(--sell);
@@ -1417,13 +1429,39 @@ select {
   outline-offset: -1px;
 }
 
+.fp-cell.imb-even {
+  background: rgba(120, 120, 130, 0.06);
+}
+
+.fp-cell.imb-buy.imb-mild {
+  background: rgba(61, 154, 106, 0.12);
+  box-shadow: inset 0 0 0 1px rgba(61, 154, 106, 0.4);
+}
+.fp-cell.imb-buy.imb-strong {
+  background: rgba(61, 154, 106, 0.2);
+  box-shadow: inset 0 0 0 2px rgba(61, 154, 106, 0.7);
+}
+
+.fp-cell.imb-sell.imb-mild {
+  background: rgba(196, 92, 92, 0.12);
+  box-shadow: inset 0 0 0 1px rgba(196, 92, 92, 0.4);
+}
+.fp-cell.imb-sell.imb-strong {
+  background: rgba(196, 92, 92, 0.2);
+  box-shadow: inset 0 0 0 2px rgba(196, 92, 92, 0.7);
+}
+
 .fp-cell.imb-buy .heat {
   background: var(--buy);
-  opacity: 0.28;
+  opacity: 0.22;
 }
 .fp-cell.imb-sell .heat {
   background: var(--sell);
-  opacity: 0.28;
+  opacity: 0.22;
+}
+
+.fp-cell .winner {
+  font-variant-numeric: tabular-nums;
 }
 
 .fp-cell .marks {
@@ -2912,7 +2950,96 @@ select {
   .shock-grid { grid-template-columns: 1fr; }
 }
 
-/* ── BACKGROUND AGGRESSION WATCH + PUSH ALERTS ── */
+/* ── SIMPLE FOOTPRINT ── */
+#footprint-root,
+.fp-panel {
+  grid-column: 1 / -1;
+  border: 1px solid var(--border-1);
+  border-radius: var(--radius);
+  background: var(--bg-2);
+  padding: 8px 10px 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-height: 420px;
+  max-height: min(72vh, 820px);
+  min-width: 0;
+}
+
+.fp-panel-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  font-size: 11px;
+  color: var(--text-2);
+  padding: 0 2px;
+}
+
+.fp-panel-head b {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-1);
+}
+
+.fp-panel-head .fp-panel-sub {
+  color: var(--text-3);
+  font-family: var(--mono);
+  font-size: 10px;
+}
+
+.fp-panel-head .fp-iv {
+  margin-left: auto;
+}
+
+.fp-howto {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 14px;
+  padding: 6px 8px;
+  border: 1px solid var(--border-0);
+  border-radius: calc(var(--radius) - 2px);
+  background: var(--bg-1);
+  font-size: 11px;
+  line-height: 1.35;
+  color: var(--text-2);
+}
+
+.fp-howto em {
+  font-style: normal;
+  font-weight: 650;
+  color: var(--text-0);
+  margin-right: 4px;
+}
+
+.fp-howto em.sell {
+  color: var(--sell);
+}
+
+.fp-howto em.buy {
+  color: var(--buy);
+}
+
+#footprint-root .fp-chart {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 0;
+  border: 1px solid var(--border-0);
+  border-radius: calc(var(--radius) - 2px);
+  background: var(--bg-1);
+}
+
+#footprint-root .empty-msg {
+  padding: 24px 12px;
+  text-align: center;
+  color: var(--text-3);
+  font-size: 12px;
+}
+
+/* ── LEGACY AGGRESSION WATCH (unused) ── */
 #agg-watch-strip,
 .agg-watch-strip {
   grid-column: 1 / -1;

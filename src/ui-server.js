@@ -353,7 +353,7 @@ server.listen(port, "0.0.0.0", () => {
     console.error("ERROR: ui/index.html missing at", path.join(UI_ROOT, "index.html"));
   }
   // Start market data after HTTP is already accepting traffic (Railway health checks)
-  startAggressionWatch();
+  // Aggression watch/alerts disabled — UI shows simple footprint instead.
   startMonitor(symbol)
     .then(() => startBroadcast())
     .catch((err) => {
