@@ -1260,29 +1260,9 @@ function renderSimpleFootprint(s) {
   const bestAsk = s.bestAsk;
   const rowCount = 1 + prices.length + 1;
 
-  let html = `<div class="fp-grid simple" style="grid-template-rows: repeat(${rowCount}, auto)">`;
-  html += `<div class="fp-corner">Price<br/><span class="sub">← book still resting</span></div>`;
+  let html = `<div class="fp-grid simple book-right" style="grid-template-rows: repeat(${rowCount}, auto)">`;
 
-  for (const p of prices) {
-    const r = resolveResting(resting, p);
-    let cls = "fp-price";
-    if (last != null && Math.abs(p - last) < 1e-9) cls += " last";
-    else if (r?.side === "ask" || (bestAsk != null && p >= bestAsk)) cls += " ask";
-    else if (r?.side === "bid" || (bestBid != null && p <= bestBid)) cls += " bid";
-
-    const qty = r?.quantity || 0;
-    const barW = qty > 0 ? Math.min(100, (qty / maxRest) * 100) : 0;
-    const sideLabel = r?.side === "ask" ? "ASK" : r?.side === "bid" ? "BID" : "";
-    html += `<div class="${cls}" title="${sideLabel || "No resting size"} ${fmtUsd(notional(qty, p))}">
-      <div class="rest-bar ${r?.side || ""}" style="width:${barW}%"></div>
-      <div class="rest-main">
-        <span class="rest-px">${fmtPx(p)}</span>
-        <span class="rest-sz">${sideLabel ? `${sideLabel} ${fmtUsd(notional(qty, p))}` : ""}</span>
-      </div>
-    </div>`;
-  }
-  html += `<div class="fp-corner">Column net<br/><span class="sub">buy − sell</span></div>`;
-
+  // Time columns first; resting book / price column last (right side)
   for (const col of cols) {
     html += `<div class="fp-time">${clock(col.t, iv)}</div>`;
     for (const p of prices) {
@@ -1309,7 +1289,6 @@ function renderSimpleFootprint(s) {
       let cls = "fp-cell simple-cell";
       if (col.poc != null && Math.abs(col.poc - p) < 1e-9) cls += " poc";
 
-      // Color the whole box by aggressive imbalance strength
       if (absImb >= 0.4) cls += imb > 0 ? " imb-buy imb-strong" : " imb-sell imb-strong";
       else if (absImb >= 0.15) cls += imb > 0 ? " imb-buy imb-mild" : " imb-sell imb-mild";
       else cls += " imb-even";
@@ -1345,16 +1324,89 @@ function renderSimpleFootprint(s) {
     </div>`;
   }
 
+  html += `<div class="fp-corner">Price<br/><span class="sub">book resting →</span></div>`;
+  for (const p of prices) {
+    const r = resolveResting(resting, p);
+    let cls = "fp-price";
+    if (last != null && Math.abs(p - last) < 1e-9) cls += " last";
+    else if (r?.side === "ask" || (bestAsk != null && p >= bestAsk)) cls += " ask";
+    else if (r?.side === "bid" || (bestBid != null && p <= bestBid)) cls += " bid";
+
+    const qty = r?.quantity || 0;
+    const barW = qty > 0 ? Math.min(100, (qty / maxRest) * 100) : 0;
+    const sideLabel = r?.side === "ask" ? "ASK" : r?.side === "bid" ? "BID" : "";
+    html += `<div class="${cls}" title="${sideLabel || "No resting size"} ${fmtUsd(notional(qty, p))}">
+      <div class="rest-bar ${r?.side || ""}" style="width:${barW}%"></div>
+      <div class="rest-main">
+        <span class="rest-sz">${sideLabel ? `${sideLabel} ${fmtUsd(notional(qty, p))}` : ""}</span>
+        <span class="rest-px">${fmtPx(p)}</span>
+      </div>
+    </div>`;
+  }
+  html += `<div class="fp-corner">Book<br/><span class="sub">still waiting</span></div>`;
+
   html += `</div>`;
-  const nearRight = el.scrollWidth - el.clientWidth - el.scrollLeft < 40;
+
+  const prevLeft = el.scrollLeft;
   el.innerHTML = html;
-  if (ui.stickRight || nearRight) el.scrollLeft = el.scrollWidth;
+  bindFpChartScroll(el);
+
+  const grid = el.querySelector(".fp-grid");
+  // Only hug the right when content fits; if it overflows, margin must be 0 or you can't scroll left.
+  if (grid) {
+    grid.style.marginLeft = "0";
+  }
+
+  requestAnimationFrame(() => {
+    if (!el.isConnected) return;
+    const overflow = el.scrollWidth > el.clientWidth + 2;
+    if (grid) {
+      grid.style.marginLeft = overflow ? "0" : "auto";
+    }
+    const maxScroll = Math.max(0, el.scrollWidth - el.clientWidth);
+    if (ui.stickRight) {
+      el.scrollLeft = maxScroll;
+    } else {
+      el.scrollLeft = Math.min(Math.max(0, prevLeft), maxScroll);
+    }
+  });
+}
+
+function bindFpChartScroll(el) {
+  if (!el || el.dataset.fpScrollBound === "1") return;
+  el.dataset.fpScrollBound = "1";
+
+  const syncStick = () => {
+    const maxScroll = Math.max(0, el.scrollWidth - el.clientWidth);
+    ui.stickRight = maxScroll <= 0 || maxScroll - el.scrollLeft < 40;
+  };
+
+  el.addEventListener("scroll", syncStick, { passive: true });
+  el.addEventListener(
+    "wheel",
+    (e) => {
+      // Horizontal intent (or shift+wheel) → unlock from live edge immediately
+      if (e.deltaX !== 0 || e.shiftKey) {
+        if (e.deltaX < 0 || (e.shiftKey && e.deltaY < 0)) ui.stickRight = false;
+      }
+    },
+    { passive: true }
+  );
+  el.addEventListener(
+    "pointerdown",
+    () => {
+      // User grabbed the chart — stop auto-jumping to the right until they return to the edge
+      const maxScroll = Math.max(0, el.scrollWidth - el.clientWidth);
+      if (maxScroll - el.scrollLeft > 40) ui.stickRight = false;
+    },
+    { passive: true }
+  );
 }
 
 function ensureFightShell() {
   const el = $("fight");
   if (
-    el.dataset.battleUx === "v8" &&
+    el.dataset.battleUx === "v9" &&
     el.querySelector("#classic-fight-root") &&
     el.querySelector("#footprint-root") &&
     el.querySelector("#fp-iv") &&
@@ -1369,7 +1421,7 @@ function ensureFightShell() {
   ) {
     return;
   }
-  el.dataset.battleUx = "v8";
+  el.dataset.battleUx = "v9";
   el.innerHTML = `<div id="classic-fight-root"></div>
     <div id="footprint-root" class="fp-panel">
       <div class="fp-panel-head">
@@ -1383,7 +1435,7 @@ function ensureFightShell() {
       </div>
       <div class="fp-howto">
         <span><em>→</em> Time moves right (each column = one bucket)</span>
-        <span><em>↓</em> Price is the left column</span>
+        <span><em>→</em> Price / resting book is on the right</span>
         <span><em class="sell">Sold</em> = aggressive sellers hitting bids</span>
         <span><em class="buy">Bought</em> = aggressive buyers lifting asks</span>
         <span><em>IMB %</em> = box turns green (buy) / red (sell) when unbalanced</span>
