@@ -50,6 +50,10 @@ const FP_INTERVALS = [
   { sec: 30, label: "30s" },
   { sec: 60, label: "1m" },
   { sec: 300, label: "5m" },
+  { sec: 900, label: "15m" },
+  { sec: 1800, label: "30m" },
+  { sec: 2700, label: "45m" },
+  { sec: 3600, label: "1h" },
 ];
 
 const ui = {
@@ -1406,7 +1410,7 @@ function bindFpChartScroll(el) {
 function ensureFightShell() {
   const el = $("fight");
   if (
-    el.dataset.battleUx === "v9" &&
+    el.dataset.battleUx === "v10" &&
     el.querySelector("#classic-fight-root") &&
     el.querySelector("#footprint-root") &&
     el.querySelector("#fp-iv") &&
@@ -1421,7 +1425,7 @@ function ensureFightShell() {
   ) {
     return;
   }
-  el.dataset.battleUx = "v9";
+  el.dataset.battleUx = "v10";
   el.innerHTML = `<div id="classic-fight-root"></div>
     <div id="footprint-root" class="fp-panel">
       <div class="fp-panel-head">
