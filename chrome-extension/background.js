@@ -125,9 +125,24 @@ function fmtUsd(n) {
 }
 
 async function showAlert(alert) {
+  const buy = Number(alert.aggressiveBuyUsd);
+  const sell = Number(alert.aggressiveSellUsd);
+  const tot = (Number.isFinite(buy) ? buy : 0) + (Number.isFinite(sell) ? sell : 0);
+  const imbPct =
+    alert.imbalancePct != null && Number.isFinite(Number(alert.imbalancePct))
+      ? Math.round(Number(alert.imbalancePct))
+      : tot > 0
+        ? Math.round(((buy - sell) / tot) * 100)
+        : 0;
+  const imbLabel = imbPct > 0 ? `+${imbPct}%` : `${imbPct}%`;
+  const title =
+    alert.message ||
+    `${alert.label || alert.symbol} AGG IMB ${imbLabel}`;
+  const body =
+    tot > 0
+      ? `${alert.symbol} · ${alert.windowSec || "—"}s · BUY ${fmtUsd(buy)} / SELL ${fmtUsd(sell)} · IMB ${imbLabel}`
+      : `${alert.symbol} · ${alert.windowSec || "—"}s · IMB ${imbLabel}`;
   const side = String(alert.side || "").toUpperCase();
-  const title = alert.message || `${alert.label || alert.symbol} ${side}`;
-  const body = `${alert.symbol} · ${alert.windowSec || "—"}s · ${fmtUsd(alert.triggerUsd)}`;
   const id = `agg-${String(alert.symbol || "x")}-${side}-${Date.now()}`.replace(
     /[^a-zA-Z0-9_-]/g,
     ""
@@ -139,6 +154,7 @@ async function showAlert(alert) {
     ts: Date.now(),
     symbol: alert.symbol,
     side,
+    imbalancePct: imbPct,
     triggerUsd: alert.triggerUsd,
   };
 

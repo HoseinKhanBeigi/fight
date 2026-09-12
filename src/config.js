@@ -92,7 +92,7 @@ export const CONFIG = {
     forwardHorizons: [1, 5, 10, 30, 60, 300],
   },
   pathTest: {
-    enabled: true,
+    enabled: false,
     strategyVersion: "PREMOVE_V1.0",
     sampleIntervalSec: 15,
     horizonSec: 900,

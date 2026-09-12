@@ -10,7 +10,6 @@ import {
   paintBattleViz,
   battleVizEvents,
 } from "./battle-viz.js";
-import { renderPathTest } from "./path-test.js";
 
 /** Same list as server `src/watchlist.js` */
 const CRYPTO_WATCHLIST = [
@@ -1061,13 +1060,35 @@ function renderPushCard(a) {
     <button type="button" class="push-card raw ${side} pri-info" data-id="${a.id}" data-sym="${a.symbol}">
       <div class="push-card-top">
         <b>${a.label || a.symbol}</b>
-        <em>${a.side === "buy" ? "BUY" : "SELL"}</em>
+        <em>IMB ${imbSigned(a)}</em>
         <span>${fmtClockMs(a.ts)}</span>
       </div>
-      <div class="push-card-money">${fmtUsd(a.triggerUsd)}</div>
-      <div class="push-card-msg">${a.title || a.message || ""}</div>
-      <div class="push-card-meta">${a.windowSec || "—"}s aggressive${pct} · threshold ${fmtUsd(a.thresholdUsd)}</div>
+      <div class="push-card-money">${imbMoneyLine(a)}</div>
+      <div class="push-card-msg">${a.message || a.title || ""}</div>
+      <div class="push-card-meta">${a.windowSec || "—"}s aggressive imbalance${pct}</div>
     </button>`;
+}
+
+function imbSigned(a) {
+  const pct =
+    a.imbalancePct != null && Number.isFinite(Number(a.imbalancePct))
+      ? Math.round(Number(a.imbalancePct))
+      : (() => {
+          const buy = Number(a.aggressiveBuyUsd) || 0;
+          const sell = Number(a.aggressiveSellUsd) || 0;
+          const tot = buy + sell;
+          return tot > 0 ? Math.round(((buy - sell) / tot) * 100) : 0;
+        })();
+  return pct > 0 ? `+${pct}%` : `${pct}%`;
+}
+
+function imbMoneyLine(a) {
+  const buy = Number(a.aggressiveBuyUsd);
+  const sell = Number(a.aggressiveSellUsd);
+  if (Number.isFinite(buy) && Number.isFinite(sell)) {
+    return `BUY ${fmtUsd(buy)} / SELL ${fmtUsd(sell)}`;
+  }
+  return fmtUsd(a.triggerUsd);
 }
 
 function pushAggressionAlert(alert) {
@@ -1103,11 +1124,11 @@ function notifyBrowser(alert) {
       const title =
         alert.layer === "smart"
           ? `${alert.label || alert.symbol} · ${alert.title || alert.alertType}`
-          : alert.message || `${alert.symbol} aggression`;
+          : alert.message || `${alert.symbol} AGG IMB`;
       const body =
         alert.layer === "smart"
           ? alert.message || ""
-          : `${alert.symbol} · ${alert.windowSec || "—"}s aggressive ${String(alert.side || "").toUpperCase()} ${fmtUsd(alert.triggerUsd)}`;
+          : `${alert.symbol} · ${alert.windowSec || "—"}s · BUY ${fmtUsd(alert.aggressiveBuyUsd)} / SELL ${fmtUsd(alert.aggressiveSellUsd)}`;
       const n = new Notification(title, {
         body,
         tag: `${alert.layer || "raw"}-${alert.symbol}-${alert.alertType || alert.side}`,
@@ -1143,10 +1164,10 @@ function renderAggressionWatchStrip() {
       hot.length
         ? `<div class="agg-watch-hot">${hot
             .map((r) => {
-              const bits = [];
-              if (r.hotBuy) bits.push(`BUY ${fmtUsd(r.aggressiveBuyUsd)}`);
-              if (r.hotSell) bits.push(`SELL ${fmtUsd(r.aggressiveSellUsd)}`);
-              return `<button type="button" class="agg-hot-chip ${r.hotBuy && r.hotSell ? "both" : r.hotBuy ? "buy" : "sell"}" data-sym="${r.symbol}">${r.label} ${bits.join(" · ")}</button>`;
+              const pct = Number.isFinite(r.imbalancePct) ? r.imbalancePct : 0;
+              const imb = pct > 0 ? `+${pct}%` : `${pct}%`;
+              const cls = pct > 8 ? "buy" : pct < -8 ? "sell" : r.hotBuy ? "buy" : "sell";
+              return `<button type="button" class="agg-hot-chip ${cls}" data-sym="${r.symbol}">${r.label} IMB ${imb} · B ${fmtUsd(r.aggressiveBuyUsd)} / S ${fmtUsd(r.aggressiveSellUsd)}</button>`;
             })
             .join("")}</div>`
         : `<div class="agg-watch-quiet">No coin over ${fmtUsd(snap.thresholdUsd)} aggressive in the last ${snap.windowSec || "—"}s</div>`
@@ -1160,11 +1181,11 @@ function ensureFightShell() {
   const el = $("fight");
   // Classic summary → aggression strip → Market Battle charts.
   if (
-    el.dataset.battleUx === "v5" &&
+    el.dataset.battleUx === "v6" &&
     el.querySelector("#classic-fight-root") &&
     el.querySelector("#agg-watch-strip") &&
     el.querySelector("#battle-viz-root") &&
-    el.querySelector("#path-test-root") &&
+    !el.querySelector("#path-test-root") &&
     !el.querySelector("#shock-events-root") &&
     !el.querySelector("#battle-cards") &&
     !el.querySelector("#premove-root") &&
@@ -1172,8 +1193,8 @@ function ensureFightShell() {
   ) {
     return;
   }
-  el.dataset.battleUx = "v5";
-  el.innerHTML = `<div id="classic-fight-root"></div><div id="agg-watch-strip" class="agg-watch-strip"></div><div id="battle-viz-root" class="bv-root"></div><div id="path-test-root"></div>`;
+  el.dataset.battleUx = "v6";
+  el.innerHTML = `<div id="classic-fight-root"></div><div id="agg-watch-strip" class="agg-watch-strip"></div><div id="battle-viz-root" class="bv-root"></div>`;
 }
 
 function modelTfLabel() {
@@ -1195,7 +1216,6 @@ function refreshBattleViz() {
   });
   window.__smartAlerts = () => ui.last?.smartAlerts || null;
   window.__smartAlertBacktest = () => ui.last?.smartAlerts?.backtest || null;
-  window.__pathTest = () => ui.last?.pathTest || null;
 }
 
 function paintBattle(s, forcePaint = false) {
@@ -1227,7 +1247,7 @@ function renderFooter() {
   $("footer").innerHTML = `
     <div class="note" style="grid-column:1/-1">
       Classic fight = aggressive vs passive summary · Market Battle charts = Attack vs Defense over time ·
-      Forward test = frozen 15m first-barrier labels · Push alerts = raw 5s aggression · Engine math unchanged.
+      Push alerts = raw 5s aggression · Engine math unchanged.
     </div>
   `;
 }
@@ -1397,7 +1417,6 @@ function renderAll(s, forcePaint = false) {
   if (forcePaint || now - ui.battleVizPaintAt >= BATTLE_CHART_MS) {
     ui.battleVizPaintAt = now;
     refreshBattleViz();
-    renderPathTest($("path-test-root"), s?.pathTest);
   }
 }
 

@@ -261,6 +261,13 @@ export class WatchlistAggressionWatcher {
     if (nowMs - last < this.cooldownMs) return;
     this.lastAlertAt.set(key, nowMs);
 
+    const buyUsd = side === "buy" ? sideUsd : otherUsd;
+    const sellUsd = side === "sell" ? sideUsd : otherUsd;
+    const tot = buyUsd + sellUsd;
+    const imbalanceUsd = buyUsd - sellUsd;
+    const imbalancePct = tot > 0 ? Math.round(((buyUsd - sellUsd) / tot) * 100) : 0;
+    const imbLabel = imbalancePct > 0 ? `+${imbalancePct}%` : `${imbalancePct}%`;
+
     const percentile = this._percentile(meta.symbol, side, sideUsd);
     const alertType = side === "buy" ? "RAW_BUY_AGGRESSION" : "RAW_SELL_AGGRESSION";
     const alert = {
@@ -271,20 +278,20 @@ export class WatchlistAggressionWatcher {
       side,
       windowSec: this.windowSec,
       thresholdUsd: this.thresholdUsd,
-      aggressiveBuyUsd: side === "buy" ? sideUsd : otherUsd,
-      aggressiveSellUsd: side === "sell" ? sideUsd : otherUsd,
+      aggressiveBuyUsd: buyUsd,
+      aggressiveSellUsd: sellUsd,
+      imbalanceUsd,
+      imbalancePct,
       triggerUsd: sideUsd,
       price: this.lastPrice.get(meta.symbol) ?? null,
       layer: "raw",
       alertType,
       type: alertType,
       priority: "INFO",
-      title: side === "buy" ? "BUY AGGRESSION" : "SELL AGGRESSION",
+      title: "AGG IMBALANCE",
       percentile,
-      message:
-        side === "buy"
-          ? `${meta.label} ${this.windowSec}s aggressive BUY ${fmtUsdShort(sideUsd)} (>${fmtUsdShort(this.thresholdUsd)})`
-          : `${meta.label} ${this.windowSec}s aggressive SELL ${fmtUsdShort(sideUsd)} (>${fmtUsdShort(this.thresholdUsd)})`,
+      // Chat / notification: imbalance first, then both sides.
+      message: `${meta.label} ${this.windowSec}s AGG IMB ${imbLabel} · BUY ${fmtUsdShort(buyUsd)} / SELL ${fmtUsdShort(sellUsd)}`,
     };
     if (this.onAlert) this.onAlert(alert);
   }
@@ -294,11 +301,15 @@ export class WatchlistAggressionWatcher {
     const now = Date.now() / 1000;
     const rows = this.symbols.map((meta) => {
       const { buy, sell } = this._sumWindow(meta.symbol, now);
+      const tot = buy + sell;
+      const imbalancePct = tot > 0 ? Math.round(((buy - sell) / tot) * 100) : 0;
       return {
         symbol: meta.symbol,
         label: meta.label,
         aggressiveBuyUsd: buy,
         aggressiveSellUsd: sell,
+        imbalanceUsd: buy - sell,
+        imbalancePct,
         hotBuy: buy >= this.thresholdUsd,
         hotSell: sell >= this.thresholdUsd,
         price: this.lastPrice.get(meta.symbol) ?? null,
