@@ -1248,7 +1248,11 @@ function renderSimpleFootprint(s) {
 
   if (!fp || !fp.columns?.length || !fp.prices?.length) {
     el.innerHTML = `<div class="empty-msg">${
-      ui.switching ? `Switching to ${ui.symbol}…` : "Waiting for trades to build the footprint…"
+      ui.switching
+        ? `Switching to ${ui.symbol}…`
+        : s?.history?.status === "loading"
+          ? "Loading trade history into footprint…"
+          : "Waiting for trades to build the footprint…"
     }</div>`;
     return;
   }
@@ -1393,12 +1397,12 @@ function renderSimpleFootprint(s) {
   bindFpChartScroll(el);
 
   const grid = el.querySelector(".fp-grid");
+  // Always left-align — margin-left:auto shoved a short grid into the top-right corner.
   if (grid) grid.style.marginLeft = "0";
 
   requestAnimationFrame(() => {
     if (!el.isConnected) return;
-    const overflow = el.scrollWidth > el.clientWidth + 2;
-    if (grid) grid.style.marginLeft = overflow ? "0" : "auto";
+    if (grid) grid.style.marginLeft = "0";
     const maxScroll = Math.max(0, el.scrollWidth - el.clientWidth);
     if (ui.stickRight) el.scrollLeft = maxScroll;
     else el.scrollLeft = Math.min(Math.max(0, prevLeft), maxScroll);
@@ -1733,4 +1737,11 @@ function connect() {
 ensureHeader();
 renderHeader({ symbol: ui.symbol, connection: "RECONNECTING" });
 renderFooter();
+ensureFightShell();
+{
+  const chart = $("chart");
+  if (chart) {
+    chart.innerHTML = `<div class="empty-msg">Connecting… loading footprint history</div>`;
+  }
+}
 connect();

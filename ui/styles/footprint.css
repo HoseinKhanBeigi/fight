@@ -3093,6 +3093,8 @@ select {
 /* Full-page footprint mode */
 body.fp-fullpage-body #app {
   grid-template-rows: auto auto 1fr auto;
+  height: 100vh;
+  min-height: 100vh;
 }
 
 body.fp-fullpage-body .fp-fight.fp-fullpage,
@@ -3105,6 +3107,8 @@ body.fp-fullpage-body .fp-fight.fp-fullpage,
   overflow: hidden;
   min-height: 0;
   height: 100%;
+  width: 100%;
+  box-sizing: border-box;
 }
 
 body.fp-fullpage-body .fp-footer {
@@ -3115,10 +3119,12 @@ body.fp-fullpage-body .fp-footer {
 .fp-panel-full {
   flex: 1 1 auto;
   height: 100%;
+  width: 100%;
   max-height: none !important;
   min-height: 0 !important;
   border-radius: var(--radius);
   padding: 6px 8px;
+  box-sizing: border-box;
 }
 
 .fp-panel-full .fp-chart,
@@ -3126,7 +3132,16 @@ body.fp-fullpage-body .fp-footer {
   flex: 1 1 auto;
   min-height: 0;
   height: 100%;
+  width: 100%;
   overflow: auto;
+  /* Keep empty startup state filling the panel, content top-left */
+  display: block;
+  position: relative;
+}
+
+.fp-panel-full .fp-grid {
+  margin-left: 0 !important;
+  margin-right: 0;
 }
 
 .fp-panel-head {
