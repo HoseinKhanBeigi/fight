@@ -197,15 +197,16 @@ export class FootprintAggregator {
         ? (asks[0].price + bids[0].price) / 2
         : [...priceSet][0]);
 
-    // Longer TFs need a taller ladder so history isn't clipped to last-price only
+    // Longer TFs / deeper book need a taller ladder
+    const bookRows = bidLevels + askLevels;
     const maxRows =
       this.intervalSec >= 1800
-        ? 160
+        ? Math.max(200, bookRows + 20)
         : this.intervalSec >= 900
-          ? 140
+          ? Math.max(180, bookRows + 20)
           : this.intervalSec >= 60
-            ? 100
-            : Math.max(bidLevels + askLevels + 20, 80);
+            ? Math.max(160, bookRows + 20)
+            : Math.max(bookRows + 20, 120);
 
     let prices = this._buildPriceRows(priceSet, tradedPrices, anchor, maxRows);
 

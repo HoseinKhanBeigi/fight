@@ -103,9 +103,9 @@ export const CONFIG = {
   },
   bookDepthLimit: 1000,
   nearBookLevels: 20,
-  footprintBidLevels: 30,
-  footprintAskLevels: 30,
-  footprintDepthLimit: 100, // REST ladder for deeper footprint rows
+  footprintBidLevels: 100,
+  footprintAskLevels: 100,
+  footprintDepthLimit: 500, // REST ladder for deeper footprint book rows
   footprintDepthRefreshMs: 2000,
   wallPercentile: 95,
   wallMultiplier: 3.0,
