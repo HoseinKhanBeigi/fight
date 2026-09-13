@@ -1214,9 +1214,8 @@ function setFootprintInterval(sec) {
 }
 
 /**
- * Simple footprint: time → columns, price ↓ rows.
- * Each cell = aggressive trade notional at that price in that time bucket.
- * Red row = sellers hitting bids. Green row = buyers lifting asks.
+ * Classic footprint: time → columns, price ↓ rows.
+ * Cell = aggressive sell x buy (USD). Right side = volume-at-price + resting book.
  */
 function renderSimpleFootprint(s) {
   const host = $("footprint-root");
@@ -1237,7 +1236,7 @@ function renderSimpleFootprint(s) {
   const sub = host.querySelector(".fp-panel-sub");
   if (sub) {
     const label = FP_INTERVALS.find((it) => it.sec === iv)?.label || `${iv}s`;
-    sub.textContent = ui.fpSwitching ? `switching to ${label}…` : `${label} buckets`;
+    sub.textContent = ui.fpSwitching ? `switching to ${label}…` : `${label} · sell x buy`;
   }
 
   if (ui.fpSwitching && fp?.intervalSec !== ui.fpInterval) {
@@ -1264,9 +1263,27 @@ function renderSimpleFootprint(s) {
   const bestAsk = s.bestAsk;
   const rowCount = 1 + prices.length + 1;
 
-  let html = `<div class="fp-grid simple book-right" style="grid-template-rows: repeat(${rowCount}, auto)">`;
+  // Volume-at-price across all visible columns
+  const vap = new Map();
+  let maxVap = 1;
+  for (const p of prices) vap.set(p, { buy: 0, sell: 0 });
+  for (const col of cols) {
+    for (const p of prices) {
+      const cell = col.cells?.[p] || col.cells?.[String(p)];
+      if (!cell) continue;
+      const row = vap.get(p);
+      row.buy += cell.buy || 0;
+      row.sell += cell.sell || 0;
+    }
+  }
+  for (const p of prices) {
+    const row = vap.get(p);
+    const t = (row.buy || 0) + (row.sell || 0);
+    if (t > maxVap) maxVap = t;
+  }
 
-  // Time columns first; resting book / price column last (right side)
+  let html = `<div class="fp-grid classic book-right" style="grid-template-rows: repeat(${rowCount}, auto)">`;
+
   for (const col of cols) {
     html += `<div class="fp-time">${clock(col.t, iv)}</div>`;
     for (const p of prices) {
@@ -1287,48 +1304,68 @@ function renderSimpleFootprint(s) {
           : total > 0
             ? (buy - sell) / total
             : 0;
-      const imbPct = Math.round(imb * 100);
       const absImb = Math.abs(imb);
+      const imbPct = Math.round(imb * 100);
 
-      let cls = "fp-cell simple-cell";
+      let cls = "fp-cell classic-cell";
       if (col.poc != null && Math.abs(col.poc - p) < 1e-9) cls += " poc";
-
       if (absImb >= 0.4) cls += imb > 0 ? " imb-buy imb-strong" : " imb-sell imb-strong";
       else if (absImb >= 0.15) cls += imb > 0 ? " imb-buy imb-mild" : " imb-sell imb-mild";
       else cls += " imb-even";
 
       const tint =
         imb > 0
-          ? `rgba(61,154,106,${0.08 + absImb * 0.45 + heat * 0.12})`
+          ? `rgba(61,154,106,${0.1 + absImb * 0.4 + heat * 0.1})`
           : imb < 0
-            ? `rgba(196,92,92,${0.08 + absImb * 0.45 + heat * 0.12})`
+            ? `rgba(196,92,92,${0.1 + absImb * 0.4 + heat * 0.1})`
             : `rgba(120,120,130,${0.06 + heat * 0.1})`;
 
-      const winner =
-        absImb >= 0.15
-          ? `${imb > 0 ? "BUY" : "SELL"} ${imbPct > 0 ? "+" : ""}${imbPct}%`
-          : `EVEN ${imbPct > 0 ? "+" : ""}${imbPct}%`;
+      const sellTxt = cellUsdText(sell, p) || "0";
+      const buyTxt = cellUsdText(buy, p) || "0";
 
-      html += `<div class="${cls}" title="At ${fmtPx(p)}: sold ${fmtUsd(notional(sell, p))} · bought ${fmtUsd(notional(buy, p))} · imbalance ${imbPct > 0 ? "+" : ""}${imbPct}%">
+      html += `<div class="${cls}" title="${fmtPx(p)} · sell ${fmtUsd(notional(sell, p))} x buy ${fmtUsd(notional(buy, p))} · imb ${imbPct > 0 ? "+" : ""}${imbPct}%">
         <div class="heat" style="background:${tint};opacity:1"></div>
-        <div class="stack">
-          <div class="stack-row sell"><span class="lab">Sold</span><span class="val">${cellUsdText(sell, p) || "—"}</span></div>
-          <div class="stack-row buy"><span class="lab">Bought</span><span class="val">${cellUsdText(buy, p) || "—"}</span></div>
+        <div class="pair">
+          <span class="sell">${sellTxt}</span>
+          <span class="x">x</span>
+          <span class="buy">${buyTxt}</span>
         </div>
-        <div class="winner ${imb > 0.15 ? "buy" : imb < -0.15 ? "sell" : ""}">${winner}</div>
       </div>`;
     }
 
     const midPx = col.poc ?? last ?? s.price;
     const dNotional = notional(col.delta, midPx);
     const dCls = col.delta >= 0 ? "pos" : "neg";
-    const dLabel = col.delta > 0 ? "Bought +" : col.delta < 0 ? "Sold +" : "Even";
-    html += `<div class="fp-delta ${dCls}" title="Bought − sold notional in this time column">
-      ${dLabel}<br/>${fmtUsd(Math.abs(dNotional))}
+    html += `<div class="fp-delta ${dCls}" title="Column delta (buy − sell)">
+      ${col.delta >= 0 ? "+" : "−"}${fmtUsd(Math.abs(dNotional))}
     </div>`;
   }
 
-  html += `<div class="fp-corner">Price<br/><span class="sub">book resting →</span></div>`;
+  // Volume-at-price profile (right of time columns)
+  html += `<div class="fp-corner fp-vap-head">VAP<br/><span class="sub">sell | buy</span></div>`;
+  for (const p of prices) {
+    const row = vap.get(p) || { buy: 0, sell: 0 };
+    const sellN = notional(row.sell, p);
+    const buyN = notional(row.buy, p);
+    const tot = row.buy + row.sell;
+    const sellW = tot > 0 ? Math.min(50, (row.sell / maxVap) * 50) : 0;
+    const buyW = tot > 0 ? Math.min(50, (row.buy / maxVap) * 50) : 0;
+    const lean = row.buy > row.sell * 1.15 ? "buy" : row.sell > row.buy * 1.15 ? "sell" : "";
+    html += `<div class="fp-vap ${lean}" title="${fmtPx(p)} VAP · sell ${fmtUsd(sellN)} · buy ${fmtUsd(buyN)}">
+      <div class="vap-track">
+        <div class="vap-bar sell" style="width:${sellW}%"></div>
+        <div class="vap-bar buy" style="width:${buyW}%"></div>
+      </div>
+      <div class="vap-nums">
+        <span class="sell">${cellUsdText(row.sell, p) || "—"}</span>
+        <span class="buy">${cellUsdText(row.buy, p) || "—"}</span>
+      </div>
+    </div>`;
+  }
+  html += `<div class="fp-corner fp-vap-head">Σ<br/><span class="sub">profile</span></div>`;
+
+  // Price + resting book
+  html += `<div class="fp-corner">Price<br/><span class="sub">book →</span></div>`;
   for (const p of prices) {
     const r = resolveResting(resting, p);
     let cls = "fp-price";
@@ -1342,12 +1379,12 @@ function renderSimpleFootprint(s) {
     html += `<div class="${cls}" title="${sideLabel || "No resting size"} ${fmtUsd(notional(qty, p))}">
       <div class="rest-bar ${r?.side || ""}" style="width:${barW}%"></div>
       <div class="rest-main">
-        <span class="rest-sz">${sideLabel ? `${sideLabel} ${fmtUsd(notional(qty, p))}` : ""}</span>
+        <span class="rest-sz">${sideLabel ? fmtUsd(notional(qty, p)) : ""}</span>
         <span class="rest-px">${fmtPx(p)}</span>
       </div>
     </div>`;
   }
-  html += `<div class="fp-corner">Book<br/><span class="sub">still waiting</span></div>`;
+  html += `<div class="fp-corner">Book<br/><span class="sub">resting</span></div>`;
 
   html += `</div>`;
 
@@ -1356,23 +1393,15 @@ function renderSimpleFootprint(s) {
   bindFpChartScroll(el);
 
   const grid = el.querySelector(".fp-grid");
-  // Only hug the right when content fits; if it overflows, margin must be 0 or you can't scroll left.
-  if (grid) {
-    grid.style.marginLeft = "0";
-  }
+  if (grid) grid.style.marginLeft = "0";
 
   requestAnimationFrame(() => {
     if (!el.isConnected) return;
     const overflow = el.scrollWidth > el.clientWidth + 2;
-    if (grid) {
-      grid.style.marginLeft = overflow ? "0" : "auto";
-    }
+    if (grid) grid.style.marginLeft = overflow ? "0" : "auto";
     const maxScroll = Math.max(0, el.scrollWidth - el.clientWidth);
-    if (ui.stickRight) {
-      el.scrollLeft = maxScroll;
-    } else {
-      el.scrollLeft = Math.min(Math.max(0, prevLeft), maxScroll);
-    }
+    if (ui.stickRight) el.scrollLeft = maxScroll;
+    else el.scrollLeft = Math.min(Math.max(0, prevLeft), maxScroll);
   });
 }
 
@@ -1410,7 +1439,7 @@ function bindFpChartScroll(el) {
 function ensureFightShell() {
   const el = $("fight");
   if (
-    el.dataset.battleUx === "v10" &&
+    el.dataset.battleUx === "v11" &&
     el.querySelector("#classic-fight-root") &&
     el.querySelector("#footprint-root") &&
     el.querySelector("#fp-iv") &&
@@ -1425,12 +1454,12 @@ function ensureFightShell() {
   ) {
     return;
   }
-  el.dataset.battleUx = "v10";
+  el.dataset.battleUx = "v11";
   el.innerHTML = `<div id="classic-fight-root"></div>
     <div id="footprint-root" class="fp-panel">
       <div class="fp-panel-head">
         <b>Footprint</b>
-        <span class="fp-panel-sub">5s buckets</span>
+        <span class="fp-panel-sub">5s · sell x buy</span>
         <div class="seg fp-iv" id="fp-iv" title="How wide each time column is">
           ${FP_INTERVALS.map(
             (it) => `<button type="button" data-n="${it.sec}">${it.label}</button>`
@@ -1438,12 +1467,10 @@ function ensureFightShell() {
         </div>
       </div>
       <div class="fp-howto">
-        <span><em>→</em> Time moves right (each column = one bucket)</span>
-        <span><em>→</em> Price / resting book is on the right</span>
-        <span><em class="sell">Sold</em> = aggressive sellers hitting bids</span>
-        <span><em class="buy">Bought</em> = aggressive buyers lifting asks</span>
-        <span><em>IMB %</em> = box turns green (buy) / red (sell) when unbalanced</span>
-        <span>Empty cell = no trades there · Bottom of column = who won that bucket</span>
+        <span><em>Cell</em> = <em class="sell">sell</em> x <em class="buy">buy</em> aggressive USD</span>
+        <span><em>VAP</em> = total volume at that price (all columns)</span>
+        <span><em>Book</em> = resting BID/ASK still waiting</span>
+        <span>Green/red box = imbalance · scroll left for older time</span>
       </div>
       <div id="chart" class="fp-chart"></div>
     </div>

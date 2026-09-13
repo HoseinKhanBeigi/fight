@@ -1181,7 +1181,7 @@ select {
   display: grid;
   grid-template-columns: none;
   grid-auto-flow: column;
-  grid-auto-columns: 104px;
+  grid-auto-columns: 78px;
   width: max-content;
   min-width: 0;
   margin-left: 0;
@@ -1196,12 +1196,21 @@ select {
   left: auto;
   right: auto;
   z-index: 2;
-  min-width: 128px;
-  width: 128px;
-  max-width: 128px;
+  min-width: 108px;
+  width: 108px;
+  max-width: 108px;
   box-shadow: none;
   background: var(--bg-1);
   border-left: 1px solid var(--border-1);
+}
+
+.fp-grid.book-right .fp-vap,
+.fp-grid.book-right .fp-vap-head {
+  min-width: 96px;
+  width: 96px;
+  max-width: 96px;
+  border-left: 1px solid var(--border-1);
+  background: var(--bg-1);
 }
 
 .fp-grid.book-right .fp-price .rest-bar.ask,
@@ -1228,6 +1237,94 @@ select {
   min-height: 48px;
   padding: 4px 5px;
   gap: 2px;
+}
+
+/* Dense classic footprint: sell x buy */
+.fp-cell.classic-cell {
+  min-height: 22px;
+  padding: 1px 3px;
+  justify-content: center;
+}
+
+.fp-cell.classic-cell .pair {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  gap: 2px;
+  align-items: center;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1.15;
+}
+
+.fp-cell.classic-cell .pair .sell {
+  color: var(--sell);
+  text-align: right;
+}
+.fp-cell.classic-cell .pair .x {
+  color: var(--text-3);
+  text-align: center;
+  font-weight: 500;
+  font-size: 9px;
+}
+.fp-cell.classic-cell .pair .buy {
+  color: var(--buy);
+  text-align: left;
+}
+
+/* Volume-at-price profile */
+.fp-vap {
+  position: relative;
+  min-height: 22px;
+  padding: 2px 4px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 2px;
+  overflow: hidden;
+}
+
+.fp-vap .vap-track {
+  position: relative;
+  height: 8px;
+  background: rgba(255, 255, 255, 0.04);
+  border-radius: 1px;
+  overflow: hidden;
+}
+
+.fp-vap .vap-bar {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  opacity: 0.85;
+}
+.fp-vap .vap-bar.sell {
+  left: 0;
+  background: var(--sell);
+}
+.fp-vap .vap-bar.buy {
+  right: 0;
+  background: var(--buy);
+}
+
+.fp-vap .vap-nums {
+  display: flex;
+  justify-content: space-between;
+  gap: 4px;
+  font-size: 9px;
+  font-weight: 700;
+  font-family: var(--mono);
+  line-height: 1.1;
+}
+.fp-vap .vap-nums .sell { color: var(--sell); }
+.fp-vap .vap-nums .buy { color: var(--buy); }
+
+.fp-vap.buy {
+  background: rgba(61, 154, 106, 0.08);
+}
+.fp-vap.sell {
+  background: rgba(196, 92, 92, 0.08);
 }
 
 .fp-cell .stack {
