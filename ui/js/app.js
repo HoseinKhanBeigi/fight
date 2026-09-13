@@ -1439,42 +1439,32 @@ function bindFpChartScroll(el) {
 function ensureFightShell() {
   const el = $("fight");
   if (
-    el.dataset.battleUx === "v11" &&
-    el.querySelector("#classic-fight-root") &&
+    el.dataset.battleUx === "v12" &&
     el.querySelector("#footprint-root") &&
     el.querySelector("#fp-iv") &&
     el.querySelector("#chart") &&
-    el.querySelector("#battle-viz-root") &&
-    !el.querySelector("#agg-watch-strip") &&
-    !el.querySelector("#path-test-root") &&
-    !el.querySelector("#shock-events-root") &&
-    !el.querySelector("#battle-cards") &&
-    !el.querySelector("#premove-root") &&
-    !el.querySelector("#liquidity-profile-root")
+    !el.querySelector("#classic-fight-root") &&
+    !el.querySelector("#battle-viz-root") &&
+    !el.querySelector("#agg-watch-strip")
   ) {
     return;
   }
-  el.dataset.battleUx = "v11";
-  el.innerHTML = `<div id="classic-fight-root"></div>
-    <div id="footprint-root" class="fp-panel">
+  el.dataset.battleUx = "v12";
+  el.classList.add("fp-fullpage");
+  document.body.classList.add("fp-fullpage-body");
+  el.innerHTML = `
+    <div id="footprint-root" class="fp-panel fp-panel-full">
       <div class="fp-panel-head">
         <b>Footprint</b>
-        <span class="fp-panel-sub">5s · sell x buy</span>
-        <div class="seg fp-iv" id="fp-iv" title="How wide each time column is">
+        <span class="fp-panel-sub">sell x buy</span>
+        <div class="seg fp-iv" id="fp-iv" title="Footprint column timeframe">
           ${FP_INTERVALS.map(
             (it) => `<button type="button" data-n="${it.sec}">${it.label}</button>`
           ).join("")}
         </div>
       </div>
-      <div class="fp-howto">
-        <span><em>Cell</em> = <em class="sell">sell</em> x <em class="buy">buy</em> aggressive USD</span>
-        <span><em>VAP</em> = total volume at that price (all columns)</span>
-        <span><em>Book</em> = resting BID/ASK still waiting</span>
-        <span>Green/red box = imbalance · scroll left for older time</span>
-      </div>
       <div id="chart" class="fp-chart"></div>
-    </div>
-    <div id="battle-viz-root" class="bv-root"></div>`;
+    </div>`;
 
   $("fp-iv")?.querySelectorAll("button").forEach((btn) => {
     btn.addEventListener("click", () => setFootprintInterval(btn.dataset.n));
@@ -1487,17 +1477,13 @@ function modelTfLabel() {
 }
 
 function refreshBattleViz() {
-  if (!ui.battleViz) ui.battleViz = createBattleVizState();
+  // Footprint full-page mode — battle charts hidden
   ensureFightShell();
-  ensureBattleVizShell($("battle-viz-root"), ui.battleViz, modelTfLabel(), () => {
-    paintBattleViz(ui.battleViz, modelTfLabel());
-  });
-  paintBattleViz(ui.battleViz, modelTfLabel());
-  requestAnimationFrame(() => paintBattleViz(ui.battleViz, modelTfLabel()));
+  if (!ui.battleViz) ui.battleViz = createBattleVizState();
   window.__battleVizEvents = () => battleVizEvents(ui.battleViz);
   window.__battleVizHistory = () => ({
-    upside: [...(ui.battleViz.upside.hist || [])],
-    downside: [...(ui.battleViz.downside.hist || [])],
+    upside: [...(ui.battleViz?.upside?.hist || [])],
+    downside: [...(ui.battleViz?.downside?.hist || [])],
   });
   window.__smartAlerts = () => ui.last?.smartAlerts || null;
   window.__smartAlertBacktest = () => ui.last?.smartAlerts?.backtest || null;
@@ -1506,12 +1492,6 @@ function refreshBattleViz() {
 function paintBattle(s, forcePaint = false) {
   ensureFightShell();
   if (!ui.battleViz) ui.battleViz = createBattleVizState();
-  ensureBattleVizShell($("battle-viz-root"), ui.battleViz, modelTfLabel(), () => {
-    paintBattleViz(ui.battleViz, modelTfLabel());
-  });
-
-  const classic = $("classic-fight-root");
-  if (classic) classic.innerHTML = renderClassicFight(s);
   renderSimpleFootprint(s);
 
   const w = ui.interval;
@@ -1531,8 +1511,7 @@ function paintBattle(s, forcePaint = false) {
 function renderFooter() {
   $("footer").innerHTML = `
     <div class="note" style="grid-column:1/-1">
-      Classic fight = aggressive vs passive summary · Footprint = where aggressive buys/sells hit by price &amp; time ·
-      Market Battle charts = Attack vs Defense over time.
+      Footprint full page · sell x buy = aggressive · VAP = volume at price · Book = resting
     </div>
   `;
 }
