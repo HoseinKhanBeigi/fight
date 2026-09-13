@@ -181,20 +181,33 @@ export class FootprintAggregator {
       };
     });
 
-    // Prefer full ask+bid ladder around mid; keep traded prices that fall inside range
-    let prices = [...priceSet].sort((a, b) => b - a);
-    const maxRows = bidLevels + askLevels + 10;
-    if (prices.length > maxRows) {
-      const anchor =
-        this.lastPrice ??
-        (asks[0] && bids[0] ? (asks[0].price + bids[0].price) / 2 : prices[Math.floor(prices.length / 2)]);
-      prices = prices
-        .map((p) => ({ p, d: Math.abs(p - anchor) }))
-        .sort((a, b) => a.d - b.d)
-        .slice(0, maxRows)
-        .map((x) => x.p)
-        .sort((a, b) => b - a);
+    // Prices that actually traded (keep these so older columns don't go blank)
+    const tradedPrices = new Set();
+    for (const col of columns) {
+      for (const [pk, cell] of Object.entries(col.cells)) {
+        if ((cell.buy || 0) + (cell.sell || 0) > 1e-12) {
+          tradedPrices.add(Number(pk));
+        }
+      }
     }
+
+    const anchor =
+      this.lastPrice ??
+      (asks[0] && bids[0]
+        ? (asks[0].price + bids[0].price) / 2
+        : [...priceSet][0]);
+
+    // Longer TFs need a taller ladder so history isn't clipped to last-price only
+    const maxRows =
+      this.intervalSec >= 1800
+        ? 160
+        : this.intervalSec >= 900
+          ? 140
+          : this.intervalSec >= 60
+            ? 100
+            : Math.max(bidLevels + askLevels + 20, 80);
+
+    let prices = this._buildPriceRows(priceSet, tradedPrices, anchor, maxRows);
 
     return {
       intervalSec: this.intervalSec,
@@ -202,8 +215,43 @@ export class FootprintAggregator {
       prices,
       resting,
       maxVol: maxVol || 1,
-      maxResting: Math.max(1, ...Object.values(resting).map((r) => r.quantity)),
+      maxResting: Math.max(1, ...Object.values(resting).map((r) => r.quantity || 0), 1),
       lastPrice: this.lastPrice,
     };
+  }
+
+  /**
+   * Prefer a continuous ladder covering all traded prices when it fits;
+   * otherwise keep traded prices first, then levels near last.
+   */
+  _buildPriceRows(priceSet, tradedPrices, anchor, maxRows) {
+    const step = 10 ** -this.pricePrecision;
+    const traded = [...tradedPrices].filter((p) => Number.isFinite(p));
+
+    if (traded.length) {
+      let lo = Math.min(...traded);
+      let hi = Math.max(...traded);
+      // Small pad so resting book around extremes still shows
+      lo = this._priceKey(lo - step * 2);
+      hi = this._priceKey(hi + step * 2);
+      const span = Math.round((hi - lo) / step) + 1;
+      if (span > 0 && span <= maxRows) {
+        const out = [];
+        for (let i = 0; i < span; i++) {
+          out.push(this._priceKey(hi - i * step));
+        }
+        return out;
+      }
+    }
+
+    const tradedSet = new Set(traded.map((p) => this._priceKey(p)));
+    const all = [...priceSet].map((p) => Number(p)).filter((p) => Number.isFinite(p));
+    all.sort((a, b) => {
+      const at = tradedSet.has(this._priceKey(a)) ? 0 : 1;
+      const bt = tradedSet.has(this._priceKey(b)) ? 0 : 1;
+      if (at !== bt) return at - bt;
+      return Math.abs(a - anchor) - Math.abs(b - anchor);
+    });
+    return all.slice(0, maxRows).sort((a, b) => b - a);
   }
 }
