@@ -1462,17 +1462,16 @@ function bindFpChartScroll(el) {
 function ensureFightShell() {
   const el = $("fight");
   if (
-    el.dataset.battleUx === "v12" &&
+    el.dataset.battleUx === "v13" &&
     el.querySelector("#footprint-root") &&
     el.querySelector("#fp-iv") &&
     el.querySelector("#chart") &&
-    !el.querySelector("#classic-fight-root") &&
-    !el.querySelector("#battle-viz-root") &&
-    !el.querySelector("#agg-watch-strip")
+    el.querySelector("#classic-fight-root") &&
+    el.querySelector("#battle-viz-root")
   ) {
     return;
   }
-  el.dataset.battleUx = "v12";
+  el.dataset.battleUx = "v13";
   el.classList.add("fp-fullpage");
   document.body.classList.add("fp-fullpage-body");
   el.innerHTML = `
@@ -1487,7 +1486,9 @@ function ensureFightShell() {
         </div>
       </div>
       <div id="chart" class="fp-chart"></div>
-    </div>`;
+    </div>
+    <div id="classic-fight-root"></div>
+    <div id="battle-viz-root" class="bv-root"></div>`;
 
   $("fp-iv")?.querySelectorAll("button").forEach((btn) => {
     btn.addEventListener("click", () => setFootprintInterval(btn.dataset.n));
@@ -1500,9 +1501,16 @@ function modelTfLabel() {
 }
 
 function refreshBattleViz() {
-  // Footprint full-page mode — battle charts hidden
-  ensureFightShell();
   if (!ui.battleViz) ui.battleViz = createBattleVizState();
+  ensureFightShell();
+  const host = $("battle-viz-root");
+  if (host) {
+    ensureBattleVizShell(host, ui.battleViz, modelTfLabel(), () => {
+      paintBattleViz(ui.battleViz, modelTfLabel());
+    });
+    paintBattleViz(ui.battleViz, modelTfLabel());
+    requestAnimationFrame(() => paintBattleViz(ui.battleViz, modelTfLabel()));
+  }
   window.__battleVizEvents = () => battleVizEvents(ui.battleViz);
   window.__battleVizHistory = () => ({
     upside: [...(ui.battleViz?.upside?.hist || [])],
@@ -1515,7 +1523,16 @@ function refreshBattleViz() {
 function paintBattle(s, forcePaint = false) {
   ensureFightShell();
   if (!ui.battleViz) ui.battleViz = createBattleVizState();
+  const battleHost = $("battle-viz-root");
+  if (battleHost) {
+    ensureBattleVizShell(battleHost, ui.battleViz, modelTfLabel(), () => {
+      paintBattleViz(ui.battleViz, modelTfLabel());
+    });
+  }
+
   renderSimpleFootprint(s);
+  const classic = $("classic-fight-root");
+  if (classic) classic.innerHTML = renderClassicFight(s);
 
   const w = ui.interval;
   const pack = s.battlesByWindow?.[w] || s.battlesByWindow?.[String(w)] || null;
@@ -1534,7 +1551,8 @@ function paintBattle(s, forcePaint = false) {
 function renderFooter() {
   $("footer").innerHTML = `
     <div class="note" style="grid-column:1/-1">
-      Footprint full page · sell x buy = aggressive · VAP = volume at price · Book = resting
+      Footprint = aggressive sell x buy · Classic boxes = aggressive vs passive ·
+      Market Battle charts = Attack vs Defense over time
     </div>
   `;
 }
