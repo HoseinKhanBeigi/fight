@@ -1225,16 +1225,9 @@ function renderSimpleFootprint(s) {
   const fp = s?.footprint;
   const hist = s?.history;
   if (fp?.intervalSec && !ui.switching) {
-    if (ui.fpSwitching) {
-      // Stay on "switching" until backfill finishes (interval flips immediately on server)
-      if (
-        fp.intervalSec === ui.fpInterval &&
-        hist?.status &&
-        hist.status !== "loading"
-      ) {
-        ui.fpSwitching = false;
-      }
-    } else {
+    if (ui.fpSwitching && fp.intervalSec === ui.fpInterval) {
+      ui.fpSwitching = false;
+    } else if (!ui.fpSwitching) {
       ui.fpInterval = fp.intervalSec;
     }
     syncFpIntervalButtons();
@@ -1254,25 +1247,25 @@ function renderSimpleFootprint(s) {
     }
   }
 
-  if (hist?.status === "loading" || (ui.fpSwitching && hist?.status !== "done")) {
-    const label = FP_INTERVALS.find((it) => it.sec === ui.fpInterval)?.label || `${ui.fpInterval}s`;
-    const n = Number(hist?.loaded) || 0;
-    const mins = hist?.lookbackSec ? Math.round(Number(hist.lookbackSec) / 60) : "—";
-    el.innerHTML = `<div class="empty-msg">Backfilling ${label} footprint…<br/><span style="color:var(--text-3)">${n.toLocaleString()} trades · ~${mins}m lookback</span></div>`;
-    return;
-  }
-
-  if (hist?.status === "error" && (!fp?.columns?.length || !fp?.prices?.length)) {
-    el.innerHTML = `<div class="empty-msg">Backfill failed: ${hist.error || "unknown"}<br/><span style="color:var(--text-3)">Live trades will still paint — try another timeframe</span></div>`;
-    return;
-  }
-
   if (!fp || !fp.columns?.length || !fp.prices?.length) {
-    el.innerHTML = `<div class="empty-msg">${
-      ui.switching
-        ? `Switching to ${ui.symbol}…`
-        : "Waiting for trades to build the footprint…"
-    }</div>`;
+    const label = FP_INTERVALS.find((it) => it.sec === ui.fpInterval)?.label || `${ui.fpInterval}s`;
+    if (hist?.status === "error") {
+      const banned = /banned/i.test(String(hist.error || ""));
+      el.innerHTML = `<div class="empty-msg">Backfill failed: ${hist.error || "unknown"}<br/><span style="color:var(--text-3)">${
+        banned
+          ? "Live websocket still runs — wait for the IP ban to lift, then reload"
+          : "Waiting for live trades to paint the footprint…"
+      }</span></div>`;
+    } else if (ui.switching) {
+      el.innerHTML = `<div class="empty-msg">Switching to ${ui.symbol}…</div>`;
+    } else if (hist?.status === "loading" || ui.fpSwitching) {
+      const n = Number(hist?.loaded) || 0;
+      el.innerHTML = `<div class="empty-msg">Building ${label} footprint…<br/><span style="color:var(--text-3)">${
+        n ? `${n.toLocaleString()} historical trades · live prints will show immediately` : "waiting for live prints…"
+      }</span></div>`;
+    } else {
+      el.innerHTML = `<div class="empty-msg">Waiting for trades to build the footprint…</div>`;
+    }
     return;
   }
 
@@ -1575,7 +1568,7 @@ function switchSymbol(next) {
   const sel = $("sym");
   if (sel) sel.value = sym;
   syncWatchlistChips();
-  send({ type: "setSymbol", symbol: sym.toLowerCase() });
+  send({ type: "setSymbol", symbol: sym.toLowerCase(), intervalSec: ui.fpInterval });
   ui.battleViz = createBattleVizState();
   ui.battleVizPaintAt = 0;
   ui.fpSwitching = false;
@@ -1740,7 +1733,11 @@ function connect() {
   ws = new WebSocket(`${proto}://${location.host}/ws`);
 
   ws.onopen = () => {
-    send({ type: "setSymbol", symbol: ui.symbol.toLowerCase() });
+    send({
+      type: "setSymbol",
+      symbol: ui.symbol.toLowerCase(),
+      intervalSec: ui.fpInterval,
+    });
   };
 
   ws.onmessage = (msg) => {

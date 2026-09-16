@@ -12,6 +12,7 @@ import { FootprintAggregator } from "./footprint.js";
 import { PreMovePressureEngine } from "./microstructure/PreMovePressureEngine.js";
 import { PathTestEngine } from "./path-test/index.js";
 import { fetchAggTradesHistory, lookbackForInterval } from "./history.js";
+import { binanceBannedUntil, binanceFetch, isBinanceBanned } from "./binance-rest.js";
 import { MultiVenueLiquidity } from "./venues/MultiVenueLiquidity.js";
 import { computeBookShape } from "./book-shape.js";
 
@@ -69,8 +70,9 @@ export class OrderFlowMonitor {
     };
     this._backfillGen = 0;
     this._backfilling = false;
-    /** @type {import('./trades.js').TradePrint[]} */
-    this._liveTradeBuf = [];
+    this._backfillAbort = null;
+    this._backfillDebounce = null;
+    this._backfillCutoff = 0;
     /** Deeper REST ladder for footprint rows (beyond live depth20). */
     this.depthLadder = { bids: [], asks: [], ts: 0 };
     this._depthLadderTimer = null;
@@ -116,9 +118,7 @@ export class OrderFlowMonitor {
 
   stop() {
     this.pathTest?.close();
-    this._backfillGen += 1;
-    this._backfilling = false;
-    this._liveTradeBuf = [];
+    this._cancelBackfill();
     if (this._depthLadderTimer) {
       clearInterval(this._depthLadderTimer);
       this._depthLadderTimer = null;
@@ -137,10 +137,15 @@ export class OrderFlowMonitor {
   }
 
   async refreshDepthLadder() {
+    if (isBinanceBanned()) return;
     try {
       const limit = this.config.footprintDepthLimit ?? 100;
       const url = `${this.config.restBase}/fapi/v1/depth?symbol=${this.config.symbol.toUpperCase()}&limit=${limit}`;
-      const res = await fetch(url);
+      const res = await binanceFetch(url, {
+        weight: 10,
+        minGapMs: 400,
+        label: "depth",
+      });
       if (!res.ok) return;
       const j = await res.json();
       this.depthLadder = {
@@ -169,12 +174,40 @@ export class OrderFlowMonitor {
     }
   }
 
+  _cancelBackfill() {
+    if (this._backfillDebounce) {
+      clearTimeout(this._backfillDebounce);
+      this._backfillDebounce = null;
+    }
+    this._backfillAbort?.abort();
+    this._backfillAbort = null;
+    this._backfillGen += 1;
+    this._backfilling = false;
+  }
+
   /**
    * Pull previous aggressive trades from Binance USD-M Futures REST into flow (+ footprint).
    * Does not reconstruct cancels/refills (API does not provide historical depth).
    */
   async backfillHistory(lookbackSec = null) {
+    this._backfillAbort?.abort();
+    const ac = new AbortController();
+    this._backfillAbort = ac;
     const gen = ++this._backfillGen;
+    if (isBinanceBanned()) {
+      const until = binanceBannedUntil();
+      const msg = `Binance IP banned until ${new Date(until).toISOString()}. Live websocket still runs.`;
+      this.history = {
+        status: "error",
+        loaded: 0,
+        lookbackSec: 0,
+        error: msg,
+      };
+      this.status = msg;
+      this._backfilling = false;
+      console.error(`[backfill] skipped ${this.config.symbol}:`, msg);
+      return;
+    }
     const maxWin = Math.max(...this.config.windows, 60);
     const lookback =
       lookbackSec ??
@@ -184,7 +217,8 @@ export class OrderFlowMonitor {
       );
 
     this._backfilling = true;
-    this._liveTradeBuf = [];
+    // Live websocket owns prints at/after this instant so REST cannot double-count them.
+    this._backfillCutoff = Date.now() / 1000;
     this.history = {
       status: "loading",
       loaded: 0,
@@ -198,13 +232,30 @@ export class OrderFlowMonitor {
 
     const endMs = Date.now();
     const startMs = endMs - lookback * 1000;
+    const cutoff = this._backfillCutoff;
 
     try {
-      const raw = await fetchAggTradesHistory({
+      const summary = await fetchAggTradesHistory({
         restBase: this.config.restBase,
         symbol: this.config.symbol,
         startMs,
         endMs,
+        signal: ac.signal,
+        onTrades: (batch) => {
+          if (gen !== this._backfillGen) return;
+          for (const row of batch) {
+            const trade = new TradePrint({
+              timestamp: Number(row.T) / 1000,
+              price: Number(row.p),
+              quantity: Number(row.q),
+              isBuyerMaker: !!row.m,
+              tradeId: Number(row.a ?? 0),
+            });
+            if (trade.timestamp >= cutoff) continue;
+            this.footprint.onTrade(trade);
+          }
+          this.footprint._prune(Date.now() / 1000);
+        },
         onBatch: (_n, total) => {
           if (gen !== this._backfillGen) return;
           this.history.loaded = total;
@@ -214,48 +265,22 @@ export class OrderFlowMonitor {
 
       if (gen !== this._backfillGen) return;
 
-      // Replace flow/footprint with a clean historical set (avoid live+history doubles)
-      this.flow.clear();
-      this.footprint.columns.clear();
-
-      raw.sort((a, b) => Number(a.T) - Number(b.T));
-      const nowSec = Date.now() / 1000;
-      const flowKeep = maxWin;
-
-      for (const row of raw) {
-        const trade = new TradePrint({
-          timestamp: Number(row.T) / 1000,
-          price: Number(row.p),
-          quantity: Number(row.q),
-          isBuyerMaker: !!row.m,
-          tradeId: Number(row.a ?? 0),
-        });
-        this.footprint.onTrade(trade);
-        if (nowSec - trade.timestamp <= flowKeep + 5) {
-          this.flow.onTrade(trade);
-        }
-      }
-
-      // Replay live prints that arrived during the REST pull
-      const buffered = this._liveTradeBuf;
-      this._liveTradeBuf = [];
-      for (const trade of buffered) {
-        this.footprint.onTrade(trade);
-        this.flow.onTrade(trade);
-      }
+      this.footprint._prune(Date.now() / 1000);
 
       this.history = {
         status: "done",
-        loaded: raw.length,
+        loaded: summary.trades,
         lookbackSec: lookback,
-        error: null,
+        error: summary.truncated ? "capped to most recent trades (REST budget)" : null,
       };
-      this.status = `History loaded: ${raw.length.toLocaleString()} trades (~${Math.round(lookback / 60)}m)`;
+      this.status = summary.truncated
+        ? `History loaded (capped): ${summary.trades.toLocaleString()} trades`
+        : `History loaded: ${summary.trades.toLocaleString()} trades (~${Math.round(lookback / 60)}m)`;
       console.log(
-        `[backfill] done ${this.config.symbol} trades=${raw.length} cols=${this.footprint.columns.size} buffered=${buffered.length}`
+        `[backfill] done ${this.config.symbol} trades=${summary.trades} pages=${summary.pages} truncated=${summary.truncated} cols=${this.footprint.columns.size}`
       );
     } catch (err) {
-      if (gen !== this._backfillGen) return;
+      if (gen !== this._backfillGen || err?.name === "AbortError") return;
       this.history = {
         status: "error",
         loaded: this.history.loaded || 0,
@@ -264,13 +289,6 @@ export class OrderFlowMonitor {
       };
       this.status = `History backfill failed: ${err.message}`;
       console.error(`[backfill] failed ${this.config.symbol}:`, err.message || err);
-      // Flush any buffered live trades so the chart is not stuck empty
-      const buffered = this._liveTradeBuf;
-      this._liveTradeBuf = [];
-      for (const trade of buffered) {
-        this.footprint.onTrade(trade);
-        this.flow.onTrade(trade);
-      }
     } finally {
       if (gen === this._backfillGen) this._backfilling = false;
     }
@@ -281,10 +299,13 @@ export class OrderFlowMonitor {
     if (!n || n <= 0) return;
     const changed = n !== this.footprint.intervalSec;
     this.footprint.setInterval(n);
-    if (changed) {
-      console.log(`[backfill] timeframe → ${n}s`);
+    if (!changed) return;
+    console.log(`[backfill] timeframe → ${n}s`);
+    this._cancelBackfill();
+    this._backfillDebounce = setTimeout(() => {
+      this._backfillDebounce = null;
       void this.backfillHistory();
-    }
+    }, 500);
   }
 
   setPreMoveWindow(sec) {
@@ -303,12 +324,6 @@ export class OrderFlowMonitor {
       isBuyerMaker: !!data.m,
       tradeId: Number(data.a ?? data.t ?? 0),
     });
-    // While REST backfill rebuilds the window, buffer live prints and replay after
-    if (this._backfilling) {
-      this._liveTradeBuf.push(trade);
-      if (this._liveTradeBuf.length > 50_000) this._liveTradeBuf.shift();
-      return;
-    }
     this.flow.onTrade(trade);
     this.footprint.onTrade(trade);
   }

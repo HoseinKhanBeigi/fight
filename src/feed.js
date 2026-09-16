@@ -7,6 +7,7 @@
  */
 
 import WebSocket from "ws";
+import { binanceFetch, isBinanceBanned } from "./binance-rest.js";
 
 export class BinanceFuturesFeed {
   constructor({
@@ -83,8 +84,9 @@ export class BinanceFuturesFeed {
   }
 
   async fetchDepthSnapshot() {
+    if (isBinanceBanned()) throw new Error("Binance IP banned — using websocket only");
     const url = `${this.restBase}/fapi/v1/depth?symbol=${this.symbolUpper}&limit=${this.depthLimit}`;
-    const res = await fetch(url);
+    const res = await binanceFetch(url, { minGapMs: 400, label: "depthSnapshot" });
     if (!res.ok) throw new Error(`Depth snapshot HTTP ${res.status}`);
     return res.json();
   }

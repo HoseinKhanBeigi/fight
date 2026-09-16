@@ -12,6 +12,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { WebSocketServer } from "ws";
 import { CONFIG } from "./config.js";
+import { binanceFetch, isBinanceBanned } from "./binance-rest.js";
 import { OrderFlowMonitor } from "./monitor.js";
 import {
   CRYPTO_WATCHLIST,
@@ -36,6 +37,7 @@ const port = Number(
 );
 const symbolArg = args.find((a) => !a.startsWith("--") && a !== String(port));
 let symbol = (process.env.SYMBOL || symbolArg || CONFIG.symbol).toLowerCase();
+let footprintIntervalSec = CONFIG.footprintIntervalSec ?? 5;
 let switching = false;
 let switchQueue = Promise.resolve();
 
@@ -186,9 +188,10 @@ function startAggressionWatch() {
 }
 
 async function fetch24h(sym) {
+  if (isBinanceBanned()) return;
   try {
     const url = `${CONFIG.restBase}/fapi/v1/ticker/24hr?symbol=${sym.toUpperCase()}`;
-    const res = await fetch(url);
+    const res = await binanceFetch(url, { minGapMs: 200, label: "ticker24h" });
     if (!res.ok) return;
     const j = await res.json();
     broadcast({
@@ -228,7 +231,12 @@ async function startMonitor(sym) {
 }
 
 async function _startMonitor(next) {
-  if (next === symbol && monitor) return;
+  if (next === symbol && monitor) {
+    if (footprintIntervalSec !== monitor.footprint.intervalSec) {
+      monitor.setFootprintInterval(footprintIntervalSec);
+    }
+    return;
+  }
 
   switching = true;
   if (monitor) {
@@ -247,6 +255,7 @@ async function _startMonitor(next) {
   monitor = new OrderFlowMonitor({
     ...CONFIG,
     symbol,
+    footprintIntervalSec,
   });
 
   broadcast({
@@ -319,7 +328,9 @@ wss.on("connection", (ws) => {
 
     if (msg.type === "setSymbol" && msg.symbol) {
       const next = String(msg.symbol).toLowerCase().trim();
-      if (next && next !== symbol) {
+      const iv = Number(msg.intervalSec);
+      if (iv > 0) footprintIntervalSec = iv;
+      if (next) {
         try {
           await startMonitor(next);
         } catch (err) {
@@ -335,6 +346,8 @@ wss.on("connection", (ws) => {
     }
 
     if (msg.type === "setFootprintInterval" && monitor && msg.intervalSec) {
+      const iv = Number(msg.intervalSec);
+      if (iv > 0) footprintIntervalSec = iv;
       monitor.setFootprintInterval(msg.intervalSec);
     }
 
