@@ -1223,9 +1223,17 @@ function renderSimpleFootprint(s) {
   if (!host || !el) return;
 
   const fp = s?.footprint;
+  const hist = s?.history;
   if (fp?.intervalSec && !ui.switching) {
     if (ui.fpSwitching) {
-      if (fp.intervalSec === ui.fpInterval) ui.fpSwitching = false;
+      // Stay on "switching" until backfill finishes (interval flips immediately on server)
+      if (
+        fp.intervalSec === ui.fpInterval &&
+        hist?.status &&
+        hist.status !== "loading"
+      ) {
+        ui.fpSwitching = false;
+      }
     } else {
       ui.fpInterval = fp.intervalSec;
     }
@@ -1236,13 +1244,26 @@ function renderSimpleFootprint(s) {
   const sub = host.querySelector(".fp-panel-sub");
   if (sub) {
     const label = FP_INTERVALS.find((it) => it.sec === iv)?.label || `${iv}s`;
-    sub.textContent = ui.fpSwitching ? `switching to ${label}…` : `${label} · sell x buy`;
+    if (hist?.status === "loading") {
+      const n = Number(hist.loaded) || 0;
+      sub.textContent = `${label} · backfilling ${n.toLocaleString()} trades…`;
+    } else if (hist?.status === "error") {
+      sub.textContent = `${label} · backfill failed`;
+    } else {
+      sub.textContent = ui.fpSwitching ? `switching to ${label}…` : `${label} · sell x buy`;
+    }
   }
 
-  if (ui.fpSwitching && fp?.intervalSec !== ui.fpInterval) {
-    el.innerHTML = `<div class="empty-msg">Building ${
-      FP_INTERVALS.find((it) => it.sec === ui.fpInterval)?.label || `${ui.fpInterval}s`
-    } footprint…</div>`;
+  if (hist?.status === "loading" || (ui.fpSwitching && hist?.status !== "done")) {
+    const label = FP_INTERVALS.find((it) => it.sec === ui.fpInterval)?.label || `${ui.fpInterval}s`;
+    const n = Number(hist?.loaded) || 0;
+    const mins = hist?.lookbackSec ? Math.round(Number(hist.lookbackSec) / 60) : "—";
+    el.innerHTML = `<div class="empty-msg">Backfilling ${label} footprint…<br/><span style="color:var(--text-3)">${n.toLocaleString()} trades · ~${mins}m lookback</span></div>`;
+    return;
+  }
+
+  if (hist?.status === "error" && (!fp?.columns?.length || !fp?.prices?.length)) {
+    el.innerHTML = `<div class="empty-msg">Backfill failed: ${hist.error || "unknown"}<br/><span style="color:var(--text-3)">Live trades will still paint — try another timeframe</span></div>`;
     return;
   }
 
@@ -1250,9 +1271,7 @@ function renderSimpleFootprint(s) {
     el.innerHTML = `<div class="empty-msg">${
       ui.switching
         ? `Switching to ${ui.symbol}…`
-        : s?.history?.status === "loading"
-          ? "Loading trade history into footprint…"
-          : "Waiting for trades to build the footprint…"
+        : "Waiting for trades to build the footprint…"
     }</div>`;
     return;
   }

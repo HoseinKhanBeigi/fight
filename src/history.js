@@ -41,9 +41,19 @@ export async function fetchAggTradesHistory({
       url.searchParams.set("startTime", String(pageStart));
       url.searchParams.set("endTime", String(chunkEnd));
 
-      const res = await fetch(url);
-      if (!res.ok) {
+      let res;
+      let attempt = 0;
+      for (;;) {
+        res = await fetch(url);
+        if (res.ok) break;
         const text = await res.text();
+        // Retry rate limits / transient errors
+        if ((res.status === 418 || res.status === 429 || res.status >= 500) && attempt < 6) {
+          const wait = Math.min(8_000, 400 * 2 ** attempt);
+          attempt += 1;
+          await sleep(wait);
+          continue;
+        }
         throw new Error(`aggTrades HTTP ${res.status}: ${text.slice(0, 200)}`);
       }
       const batch = await res.json();
@@ -57,11 +67,11 @@ export async function fetchAggTradesHistory({
       const next = lastT + 1;
       if (next <= pageStart || next > chunkEnd) break;
       pageStart = next;
-      await sleep(40);
+      await sleep(20);
     }
 
     cursor = chunkEnd + 1;
-    await sleep(40);
+    await sleep(20);
   }
 
   return out;
@@ -71,16 +81,18 @@ export async function fetchAggTradesHistory({
 export function lookbackForInterval(intervalSec, maxColumns) {
   const cols = maxColumns || 48;
   const raw = Math.max(intervalSec * cols, intervalSec * 12);
-  // Cap REST backfill so Railway / rate limits stay sane
+  // Cap REST backfill — long pulls look like "no backfill" and hit rate limits
   const cap =
-    intervalSec >= 2700
+    intervalSec >= 3600
       ? 12 * 3600
-      : intervalSec >= 1800
+      : intervalSec >= 2700
         ? 10 * 3600
-        : intervalSec >= 900
+        : intervalSec >= 1800
           ? 8 * 3600
-          : intervalSec >= 300
-            ? 4 * 3600
-            : 2 * 3600;
+          : intervalSec >= 900
+            ? 6 * 3600
+            : intervalSec >= 300
+              ? 3 * 3600
+              : 90 * 60;
   return Math.min(raw, cap);
 }
