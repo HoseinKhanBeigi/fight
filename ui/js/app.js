@@ -1412,6 +1412,7 @@ function renderSimpleFootprint(s) {
   html += `</div>`;
 
   const prevLeft = el.scrollLeft;
+  const prevTop = el.scrollTop;
   el.innerHTML = html;
   bindFpChartScroll(el);
 
@@ -1422,9 +1423,12 @@ function renderSimpleFootprint(s) {
   requestAnimationFrame(() => {
     if (!el.isConnected) return;
     if (grid) grid.style.marginLeft = "0";
-    const maxScroll = Math.max(0, el.scrollWidth - el.clientWidth);
-    if (ui.stickRight) el.scrollLeft = maxScroll;
-    else el.scrollLeft = Math.min(Math.max(0, prevLeft), maxScroll);
+    const maxScrollX = Math.max(0, el.scrollWidth - el.clientWidth);
+    const maxScrollY = Math.max(0, el.scrollHeight - el.clientHeight);
+    if (ui.stickRight) el.scrollLeft = maxScrollX;
+    else el.scrollLeft = Math.min(Math.max(0, prevLeft), maxScrollX);
+    // Keep the user's vertical position — do not auto-jump to last price.
+    el.scrollTop = Math.min(Math.max(0, prevTop), maxScrollY);
   });
 }
 
